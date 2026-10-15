@@ -148,7 +148,7 @@ else:
             uploaded_files = st.file_uploader("📎 Add Photos/Files", accept_multiple_files=True)
             
             st.write("🎙️ Record Voice Note")
-            audio_recording = mic_recorder(start_prompt="⏺️ Start Recording", stop_prompt="⏹️ Stop Recording", key='recorder')
+            audio_recording = mic_recorder(start_prompt="⏺️ Start Recording", stop_prompt="⏹️ Stop Recording", format="wav",  # <-- Force WAV format to match your upload mimetypekey='recorder'))
             
             if st.button("Assign Task", use_container_width=True, type="primary"):
                 if title and assignee:
