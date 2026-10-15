@@ -3,6 +3,7 @@ import gspread
 import pandas as pd
 from datetime import datetime
 import random
+import requests
 from google.oauth2 import service_account
 
 # Mobile-first configuration
@@ -10,6 +11,7 @@ st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered"
 
 # Constants
 SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
+TELEGRAM_BOT_TOKEN = "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io"
 
 @st.cache_resource
 def get_gs_client():
@@ -29,6 +31,20 @@ def fetch_data(sheet_name):
 def append_task(task_data):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     sheet.append_row(task_data)
+
+def send_telegram_alert(chat_id, task_title, assigned_by, deadline):
+    if not chat_id:
+        return
+    message = (
+        f"🚨 *New Task Assigned!*\n\n"
+        f"📋 *Task:* {task_title}\n"
+        f"🏢 *From:* {assigned_by}\n"
+        f"📅 *Deadline:* {deadline}\n\n"
+        f"Please check your portal for details."
+    )
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": str(chat_id).strip(), "text": message, "parse_mode": "Markdown"}
+    requests.post(url, json=payload)
 
 # State Management
 if 'user' not in st.session_state:
@@ -93,13 +109,21 @@ else:
                     if title and assignee:
                         task_id = f"TSK-{random.randint(100000, 999999)}"
                         assigned_dept = users_df[users_df['NAME'] == assignee]['DEPARTMENT'].values[0]
+                        
                         task_row = [
                             task_id, title, desc, user['name'], assigned_dept, 
                             assignee, datetime.now().strftime("%Y-%m-%d"), 
                             str(deadline), "Assigned", "", ""
                         ]
                         append_task(task_row)
-                        st.success(f"Task sent to {assignee}!")
+                        
+                        # Trigger Telegram Alert
+                        assignee_row = users_df[users_df['NAME'] == assignee]
+                        telegram_id = assignee_row['TELEGRAM_ID'].values[0] if 'TELEGRAM_ID' in assignee_row.columns else None
+                        if pd.notna(telegram_id) and telegram_id != "":
+                            send_telegram_alert(telegram_id, title, user['name'], str(deadline))
+
+                        st.success(f"Task sent to {assignee} and Telegram alert dispatched!")
                         st.rerun()
 
     # --- MAIN SCREEN (Task Board) ---
@@ -109,30 +133,22 @@ else:
     if tasks_df.empty:
         st.info("No tasks in the system yet.")
     else:
-        # Filter tasks for the logged-in user
         if user['role'] not in ['CEO', 'GM']:
             if user['role'] == 'HOD':
                 tasks_df = tasks_df[(tasks_df['Assigned Dept'] == user['dept']) | (tasks_df['Assigned To'] == user['name'])]
             else:
                 tasks_df = tasks_df[tasks_df['Assigned To'] == user['name']]
 
-        # Create UI Tabs
         tab1, tab2, tab3 = st.tabs(["📌 Active", "⏳ Under Review", "✅ Completed"])
 
         def render_task_card(row):
-            """Helper function to draw a clean, prominent task card."""
             with st.container(border=True):
                 st.markdown(f"### {row['Title']}")
-                
-                # Prominent Assignment Logic
                 colA, colB = st.columns(2)
                 colA.markdown(f"**From:** 🏢 {row['Assigned By']}")
                 colB.markdown(f"**To:** 👷‍♂️ {row['Assigned To']}")
-                
-                # Formatting the Description
                 st.info(row['Description'])
                 
-                # Deadline Logic
                 today = datetime.now().date()
                 try:
                     deadline_date = datetime.strptime(str(row['Deadline']), "%Y-%m-%d").date()
@@ -143,7 +159,6 @@ else:
                 except:
                     st.markdown(f"📅 **Due:** {row['Deadline']}")
 
-        # Render rows into the correct tabs
         with tab1:
             active_tasks = tasks_df[tasks_df['Status'] == 'Assigned']
             if active_tasks.empty:
