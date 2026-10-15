@@ -40,11 +40,26 @@ def append_task(task_data):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     sheet.append_row(task_data)
 
+from googleapiclient.errors import HttpError
+
 def upload_bytes_to_drive(file_bytes, filename, mimetype):
-    file_metadata = {'name': filename, 'parents': [FOLDER_ID]}
-    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype, resumable=True)
-    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    return file.get('id')
+    try:
+        file_metadata = {'name': filename, 'parents': [FOLDER_ID]}
+        # Set resumable=False for small in-memory byte uploads to avoid next_chunk() crashes
+        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype, resumable=False)
+        
+        file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id',
+            supportsAllDrives=True  # Required if using Shared Drives
+        ).execute()
+        return file.get('id')
+        
+    except HttpError as e:
+        # Prints the exact Google API error on screen instead of Streamlit redacting it
+        st.error(f"Google Drive API Error ({e.resp.status}): {e._get_reason()}")
+        st.stop()
 
 def send_telegram_alert(chat_id, task_title, assigned_by, deadline, description):
     if not chat_id:
