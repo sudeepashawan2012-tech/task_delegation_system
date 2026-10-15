@@ -102,7 +102,7 @@ else:
                 else:
                     assignees = users_df[users_df['DEPARTMENT'] == user['dept']]['NAME'].tolist()
                 
-                assignee = st.selectbox("Assign To:", [n for n in assignees if n != user['name']])
+                assignee = st.selectbox("Assign To:", assignees)
                 deadline = st.date_input("Deadline")
                 
                 if st.form_submit_button("Launch Task", use_container_width=True, type="primary"):
