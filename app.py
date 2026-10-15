@@ -15,9 +15,9 @@ from streamlit_mic_recorder import mic_recorder
 st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
 # Constants (Replace with your actual Sheet ID, Folder ID, and Bot Token or load from st.secrets)
-SHEET_ID = st.secrets.get("SHEET_ID", "YOUR_SHEET_ID")
-FOLDER_ID = st.secrets.get("FOLDER_ID", "YOUR_FOLDER_ID")
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+SHEET_ID = st.secrets.get("SHEET_ID", "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk")
+FOLDER_ID = st.secrets.get("FOLDER_ID", "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR")
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io")
 
 @st.cache_resource
 def get_gcp_services():
