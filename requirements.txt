@@ -3,3 +3,4 @@ gspread
 pandas
 google-api-python-client
 google-auth
+requests
