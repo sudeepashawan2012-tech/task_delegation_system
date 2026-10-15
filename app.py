@@ -8,21 +8,22 @@ import io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.errors import HttpError
 from streamlit_mic_recorder import mic_recorder
 
 # Mobile-first configuration
 st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
-# Constants
-SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
-FOLDER_ID = "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR" 
-TELEGRAM_BOT_TOKEN = "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io"
+# Constants (Replace with your actual Sheet ID, Folder ID, and Bot Token or load from st.secrets)
+SHEET_ID = st.secrets.get("SHEET_ID", "YOUR_SHEET_ID")
+FOLDER_ID = st.secrets.get("FOLDER_ID", "YOUR_FOLDER_ID")
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 
 @st.cache_resource
 def get_gcp_services():
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = service_account.Credentials.from_service_account_info(
-        creds_dict, 
+        creds_dict,
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     )
     client = gspread.authorize(creds)
@@ -31,7 +32,7 @@ def get_gcp_services():
 
 gs_client, drive_service = get_gcp_services()
 
-@st.cache_data(ttl=60) 
+@st.cache_data(ttl=60)
 def fetch_data(sheet_name):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet(sheet_name)
     return pd.DataFrame(sheet.get_all_records())
@@ -40,24 +41,20 @@ def append_task(task_data):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     sheet.append_row(task_data)
 
-from googleapiclient.errors import HttpError
-
 def upload_bytes_to_drive(file_bytes, filename, mimetype):
     try:
         file_metadata = {'name': filename, 'parents': [FOLDER_ID]}
-        # Set resumable=False for small in-memory byte uploads to avoid next_chunk() crashes
         media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype, resumable=False)
         
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id',
-            supportsAllDrives=True  # Required if using Shared Drives
+            supportsAllDrives=True
         ).execute()
         return file.get('id')
         
     except HttpError as e:
-        # Prints the exact Google API error on screen instead of Streamlit redacting it
         st.error(f"Google Drive API Error ({e.resp.status}): {e._get_reason()}")
         st.stop()
 
@@ -85,7 +82,7 @@ if 'user' not in st.session_state:
 if st.session_state.user is None:
     st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>Task Portal</h1>", unsafe_allow_html=True)
     
-    st.write("") 
+    st.write("")
     with st.container(border=True):
         username = st.text_input("Employee Name").strip().upper()
         password = st.text_input("Password", type="password")
@@ -149,11 +146,11 @@ else:
             
             st.write("🎙️ Record Voice Note")
             audio_recording = mic_recorder(
-    start_prompt="⏺️ Start Recording",
-    stop_prompt="⏹️ Stop Recording",
-    format="wav",
-    key="recorder"
-)
+                start_prompt="⏺️ Start Recording",
+                stop_prompt="⏹️ Stop Recording",
+                format="wav",
+                key="recorder"
+            )
             
             if st.button("Assign Task", use_container_width=True, type="primary"):
                 if title and assignee:
@@ -175,7 +172,7 @@ else:
                             upload_bytes_to_drive(audio_recording['bytes'], f"{task_id}_VoiceNote.wav", 'audio/wav')
                         
                         task_row = [
-                            task_id, title, desc, user['name'], assigned_dept, 
+                            task_id, title, desc, user['name'], assigned_dept,
                             assignee, created_str, deadline_str, "Assigned", "", ""
                         ]
                         append_task(task_row)
@@ -186,7 +183,7 @@ else:
                         if pd.notna(telegram_id) and telegram_id != "":
                             send_telegram_alert(telegram_id, title, user['name'], deadline_str, desc)
 
-                        fetch_data.clear() 
+                        fetch_data.clear()
                     st.toast(f"✅ Assigned to {assignee}!", icon="🚀")
                     st.rerun()
                 else:
@@ -226,7 +223,13 @@ else:
                 if view_btn:
                     with st.spinner("Loading files..."):
                         query = f"'{FOLDER_ID}' in parents and name contains '{row['Task ID']}' and trashed=false"
-                        results = drive_service.files().list(q=query, spaces='drive', fields='files(id, name, mimeType)').execute()
+                        results = drive_service.files().list(
+                            q=query,
+                            spaces='drive',
+                            fields='files(id, name, mimeType)',
+                            supportsAllDrives=True,
+                            includeItemsFromAllDrives=True
+                        ).execute()
                         items = results.get('files', [])
                         
                         if not items:
