@@ -1,36 +1,39 @@
 import streamlit as st
 import gspread
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import random
 import requests
-import io
+import base64
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-from googleapiclient.errors import HttpError
-from streamlit_mic_recorder import mic_recorder
 
 # Mobile-first configuration
 st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
-# Constants (Replace with your actual Sheet ID, Folder ID, and Bot Token or load from st.secrets)
-SHEET_ID = st.secrets.get("SHEET_ID", "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk")
-FOLDER_ID = st.secrets.get("FOLDER_ID", "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR")
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io")
+# Constants
+SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
+FOLDER_ID = "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR"
+TELEGRAM_BOT_TOKEN = "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io"
+
+# PASTE YOUR GOOGLE APPS SCRIPT WEB APP URL BELOW:
+GAS_WEBAPP_URL = st.secrets.get("GAS_WEBAPP_URL", "https://script.google.com/macros/s/AKfycbwTAf2WeIGGNBlDdtRq4pjHYNf9_KxU-3Pji5Ejg8TkTesrHJUxyZSoFkTfhPQJ9GSx/exec")
+
+# Indian Standard Time (IST) helper so Streamlit Cloud (UTC) matches India time
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def now_ist():
+    return datetime.now(IST).replace(tzinfo=None)
 
 @st.cache_resource
-def get_gcp_services():
+def get_gcp_client():
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = service_account.Credentials.from_service_account_info(
         creds_dict,
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     )
-    client = gspread.authorize(creds)
-    drive_service = build('drive', 'v3', credentials=creds)
-    return client, drive_service
+    return gspread.authorize(creds)
 
-gs_client, drive_service = get_gcp_services()
+gs_client = get_gcp_client()
 
 @st.cache_data(ttl=60)
 def fetch_data(sheet_name):
@@ -41,22 +44,69 @@ def append_task(task_data):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     sheet.append_row(task_data)
 
+def delete_task_from_sheet(task_id):
+    sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
+    cell = sheet.find(str(task_id), in_column=1)
+    if cell:
+        sheet.delete_rows(cell.row)
+    # Also delete attachments in Drive via Apps Script bridge
+    if GAS_WEBAPP_URL.startswith("http"):
+        try:
+            requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=15)
+        except Exception:
+            pass
+
+def clear_all_completed_tasks():
+    sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
+    records = sheet.get_all_records()
+    # Delete from bottom to top so row numbers don't shift
+    for idx in range(len(records) - 1, -1, -1):
+        if str(records[idx].get("Status", "")).strip() == "Completed":
+            task_id = records[idx].get("Task ID")
+            sheet.delete_rows(idx + 2)  # +2 accounts for header row and 0-indexing
+            if task_id and GAS_WEBAPP_URL.startswith("http"):
+                try:
+                    requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=10)
+                except Exception:
+                    pass
+
 def upload_bytes_to_drive(file_bytes, filename, mimetype):
-    try:
-        file_metadata = {'name': filename, 'parents': [FOLDER_ID]}
-        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype, resumable=False)
-        
-        file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        ).execute()
-        return file.get('id')
-        
-    except HttpError as e:
-        st.error(f"Google Drive API Error ({e.resp.status}): {e._get_reason()}")
+    if not GAS_WEBAPP_URL.startswith("http"):
+        st.error("⚠️ Please paste your Google Apps Script Web App URL into GAS_WEBAPP_URL first.")
         st.stop()
+    payload = {
+        "action": "upload",
+        "filename": filename,
+        "mimeType": mimetype,
+        "bytes": base64.b64encode(file_bytes).decode("utf-8")
+    }
+    resp = requests.post(GAS_WEBAPP_URL, json=payload, timeout=60)
+    res_json = resp.json()
+    if res_json.get("status") != "success":
+        st.error(f"Drive Upload Error: {res_json.get('message')}")
+        st.stop()
+    return res_json.get("id")
+
+def fetch_attachments_from_drive(task_id):
+    if not GAS_WEBAPP_URL.startswith("http"):
+        return []
+    resp = requests.post(GAS_WEBAPP_URL, json={"action": "list", "taskId": task_id}, timeout=30)
+    res_json = resp.json()
+    if res_json.get("status") == "success":
+        return res_json.get("files", [])
+    return []
+
+def parse_deadline(deadline_str):
+    if not deadline_str or pd.isna(deadline_str):
+        return None
+    s = str(deadline_str).strip()
+    # Supports both new DD/MM/YYYY format and older MM/DD/YYYY tasks already in your sheet
+    for fmt in ["%d/%m/%Y, %I:%M:%S %p", "%d/%m/%Y, %I:%M %p", "%m/%d/%Y, %I:%M:%S %p", "%Y-%m-%d %H:%M:%S"]:
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
 
 def send_telegram_alert(chat_id, task_title, assigned_by, deadline, description):
     if not chat_id:
@@ -70,7 +120,10 @@ def send_telegram_alert(chat_id, task_title, assigned_by, deadline, description)
     )
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": str(chat_id).strip(), "text": message, "parse_mode": "Markdown"}
-    requests.post(url, json=payload)
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception:
+        pass
 
 # State Management
 if 'user' not in st.session_state:
@@ -93,7 +146,11 @@ if st.session_state.user is None:
             
             if not user_match.empty:
                 user_info = user_match.iloc[0]
-                st.session_state.user = {'name': user_info['NAME'], 'dept': user_info['DEPARTMENT'], 'role': user_info['ROLE']}
+                st.session_state.user = {
+                    'name': user_info['NAME'],
+                    'dept': user_info['DEPARTMENT'],
+                    'role': user_info['ROLE']
+                }
                 st.rerun()
             else:
                 st.error("Invalid Name or Password")
@@ -135,41 +192,36 @@ else:
             
             assignee = st.selectbox("Assign To", assignees, key="t_assignee")
             
-            # Exact Date & Time formatting
+            # Date & Time formatting in DD/MM/YYYY
             col_d, col_t = st.columns(2)
             with col_d:
-                deadline_d = st.date_input("Deadline Date")
+                deadline_d = st.date_input("Deadline Date", value=now_ist().date(), format="DD/MM/YYYY")
             with col_t:
-                deadline_t = st.time_input("Time")
+                deadline_t = st.time_input("Time", value=now_ist().time().replace(second=0, microsecond=0))
             
             uploaded_files = st.file_uploader("📎 Add Photos/Files", accept_multiple_files=True)
             
-            st.write("🎙️ Record Voice Note")
-            audio_recording = mic_recorder(
-                start_prompt="⏺️ Start Recording",
-                stop_prompt="⏹️ Stop Recording",
-                format="wav",
-                key="recorder"
-            )
+            # Native Streamlit Audio Recorder with Live Waveform + Timer + Playback
+            audio_recording = st.audio_input("🎙️ Record Voice Note")
             
             if st.button("Assign Task", use_container_width=True, type="primary"):
                 if title and assignee:
-                    with st.spinner("Assigning task..."):
+                    with st.spinner("Assigning task & uploading attachments..."):
                         task_id = f"TSK-{random.randint(100000, 999999)}"
                         assigned_dept = users_df[users_df['NAME'] == assignee]['DEPARTMENT'].values[0]
                         
-                        created_str = datetime.now().strftime("%m/%d/%Y, %I:%M:%S %p")
-                        deadline_str = f"{deadline_d.strftime('%m/%d/%Y')}, {deadline_t.strftime('%I:%M:%S %p')}"
+                        created_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
+                        deadline_str = f"{deadline_d.strftime('%d/%m/%Y')}, {deadline_t.strftime('%I:%M:%S %p')}"
                         
-                        # Upload standard files
+                        # Upload standard files (Photos/PDFs)
                         if uploaded_files:
                             for idx, file in enumerate(uploaded_files):
                                 file_ext = file.name.split('.')[-1]
                                 upload_bytes_to_drive(file.getvalue(), f"{task_id}_{idx+1}.{file_ext}", file.type)
                         
                         # Upload Voice Note
-                        if audio_recording:
-                            upload_bytes_to_drive(audio_recording['bytes'], f"{task_id}_VoiceNote.wav", 'audio/wav')
+                        if audio_recording is not None:
+                            upload_bytes_to_drive(audio_recording.getvalue(), f"{task_id}_VoiceNote.wav", "audio/wav")
                         
                         task_row = [
                             task_id, title, desc, user['name'], assigned_dept,
@@ -180,7 +232,7 @@ else:
                         # Telegram Alert
                         assignee_row = users_df[users_df['NAME'] == assignee]
                         telegram_id = assignee_row['TELEGRAM_ID'].values[0] if 'TELEGRAM_ID' in assignee_row.columns else None
-                        if pd.notna(telegram_id) and telegram_id != "":
+                        if pd.notna(telegram_id) and str(telegram_id).strip() != "":
                             send_telegram_alert(telegram_id, title, user['name'], deadline_str, desc)
 
                         fetch_data.clear()
@@ -189,67 +241,132 @@ else:
                 else:
                     st.error("Title and Assignee are required.")
 
+            st.divider()
+            st.markdown("### 🧹 Maintenance")
+            if st.button("🗑️ Clear All Completed Tasks", use_container_width=True):
+                with st.spinner("Cleaning up completed tasks..."):
+                    clear_all_completed_tasks()
+                    fetch_data.clear()
+                st.toast("All completed tasks deleted!", icon="🧹")
+                st.rerun()
+
     # --- MAIN SCREEN (Task Board) ---
     st.header("Workspace")
-    tasks_df = fetch_data("Tasks")
+    all_tasks_df = fetch_data("Tasks")
 
-    if tasks_df.empty:
+    if all_tasks_df.empty:
         st.info("No tasks in the system yet.")
     else:
-        if user['role'] not in ['CEO', 'GM']:
-            if user['role'] == 'HOD':
-                tasks_df = tasks_df[(tasks_df['Assigned Dept'] == user['dept']) | (tasks_df['Assigned To'] == user['name'])]
-            else:
-                tasks_df = tasks_df[tasks_df['Assigned To'] == user['name']]
+        current_time = now_ist()
 
-        tab1, tab2, tab3 = st.tabs(["📌 Active", "⏳ Review", "✅ Done"])
+        # Check overdue status across ALL tasks
+        def check_is_overdue(row):
+            if str(row.get('Status', '')).strip() == 'Completed':
+                return False
+            dt = parse_deadline(row.get('Deadline', ''))
+            return (dt is not None) and (dt < current_time)
 
-        def render_task_card(row):
-            # Ultra-compact Sleek Card UI
+        all_tasks_df['is_overdue'] = all_tasks_df.apply(check_is_overdue, axis=1)
+
+        # Overdue tasks are visible to EVERYONE so the whole team stays accountable
+        overdue_tasks = all_tasks_df[all_tasks_df['is_overdue'] == True]
+
+        # Role-based filtering for Active, Review, and Done tabs
+        if user['role'] in ['CEO', 'GM']:
+            role_tasks_df = all_tasks_df
+        elif user['role'] == 'HOD':
+            role_tasks_df = all_tasks_df[(all_tasks_df['Assigned Dept'] == user['dept']) | (all_tasks_df['Assigned To'] == user['name'])]
+        else:
+            role_tasks_df = all_tasks_df[all_tasks_df['Assigned To'] == user['name']]
+
+        overdue_count = len(overdue_tasks)
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📌 Active",
+            f"🚨 Overdue ({overdue_count})",
+            "⏳ Review",
+            "✅ Done"
+        ])
+
+        def render_task_card(row, tab_prefix):
+            is_overdue = row.get('is_overdue', False)
+            deadline_color = "#DC2626" if is_overdue else "#D97706"
+            overdue_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🚨 OVERDUE</span>" if is_overdue else ""
+
             with st.container(border=True):
-                c1, c2 = st.columns([0.85, 0.15])
+                can_delete = user['role'] in ['CEO', 'GM', 'HOD']
+                if can_delete:
+                    c1, c2, c3 = st.columns([0.76, 0.12, 0.12])
+                else:
+                    c1, c2 = st.columns([0.85, 0.15])
+                    c3 = None
+
                 with c1:
                     st.markdown(f"""
-                        <div style='line-height: 1.3;'>
-                            <b style='font-size:16px;'>{row['Title']}</b> <span style='font-size:11px;color:gray;'>{row['Task ID']}</span><br>
-                            <span style='font-size:13px; color:#1E3A8A;'>🏢 {row['Assigned By']} &nbsp;➡️&nbsp; 👷‍♂️ {row['Assigned To']}</span><br>
+                        <div style='line-height: 1.35;'>
+                            <b style='font-size:16px;'>{row['Title']}</b> <span style='font-size:11px;color:gray;'>{row['Task ID']}</span>{overdue_badge}<br>
+                            <span style='font-size:13px; color:#1E3A8A;'>🏢 {row['Assigned By']} &nbsp;➡️&nbsp; 👷‍♂️ {row['Assigned To']} ({row['Assigned Dept']})</span><br>
                             <span style='font-size:14px; color:#333;'>{row['Description']}</span><br>
-                            <span style='font-size:12px; font-weight:bold; color:#D97706;'>📅 {row['Deadline']}</span>
+                            <span style='font-size:12px; font-weight:bold; color:{deadline_color};'>📅 {row['Deadline']}</span>
                         </div>
                     """, unsafe_allow_html=True)
+
                 with c2:
-                    view_btn = st.button("📎", key=f"btn_{row['Task ID']}", help="View Attachments")
-                
+                    view_btn = st.button("📎", key=f"att_{tab_prefix}_{row['Task ID']}", help="View / Play Attachments")
+
+                if can_delete and c3 is not None:
+                    with c3:
+                        del_btn = st.button("🗑️", key=f"del_{tab_prefix}_{row['Task ID']}", help="Delete Task")
+                        if del_btn:
+                            with st.spinner("Deleting task..."):
+                                delete_task_from_sheet(row['Task ID'])
+                                fetch_data.clear()
+                            st.toast(f"Deleted {row['Task ID']}", icon="🗑️")
+                            st.rerun()
+
                 if view_btn:
-                    with st.spinner("Loading files..."):
-                        query = f"'{FOLDER_ID}' in parents and name contains '{row['Task ID']}' and trashed=false"
-                        results = drive_service.files().list(
-                            q=query,
-                            spaces='drive',
-                            fields='files(id, name, mimeType)',
-                            supportsAllDrives=True,
-                            includeItemsFromAllDrives=True
-                        ).execute()
-                        items = results.get('files', [])
-                        
+                    with st.spinner("Loading attachments..."):
+                        items = fetch_attachments_from_drive(row['Task ID'])
                         if not items:
                             st.warning("No files attached.")
                         else:
                             for item in items:
-                                icon = "🎵" if "audio" in item.get('mimeType', '') else "📄"
-                                st.markdown(f"{icon} [{item['name']}](https://drive.google.com/file/d/{item['id']}/view)")
+                                mime = item.get('mimeType', '')
+                                raw_bytes = base64.b64decode(item['b64']) if 'b64' in item else None
+                                
+                                if "audio" in mime and raw_bytes:
+                                    st.caption(f"🎵 **{item['name']}**")
+                                    st.audio(raw_bytes, format="audio/wav")
+                                elif "image" in mime and raw_bytes:
+                                    st.caption(f"🖼️ **{item['name']}**")
+                                    st.image(raw_bytes, use_container_width=True)
+                                else:
+                                    st.markdown(f"📄 [{item['name']}]({item.get('url', '#')})")
 
         with tab1:
-            active_tasks = tasks_df[tasks_df['Status'] == 'Assigned']
+            active_tasks = role_tasks_df[role_tasks_df['Status'] == 'Assigned']
+            if active_tasks.empty:
+                st.caption("No active tasks.")
             for _, row in active_tasks.iterrows():
-                render_task_card(row)
+                render_task_card(row, "act")
 
         with tab2:
-            review_tasks = tasks_df[tasks_df['Status'] == 'Under Review']
-            for _, row in review_tasks.iterrows():
-                render_task_card(row)
+            if overdue_tasks.empty:
+                st.success("🎉 Zero overdue tasks across the workspace!")
+            else:
+                st.caption("Showing all overdue tasks across all departments:")
+                for _, row in overdue_tasks.iterrows():
+                    render_task_card(row, "ovr")
 
         with tab3:
-            completed_tasks = tasks_df[tasks_df['Status'] == 'Completed']
+            review_tasks = role_tasks_df[role_tasks_df['Status'] == 'Under Review']
+            if review_tasks.empty:
+                st.caption("No tasks under review.")
+            for _, row in review_tasks.iterrows():
+                render_task_card(row, "rev")
+
+        with tab4:
+            completed_tasks = role_tasks_df[role_tasks_df['Status'] == 'Completed']
+            if completed_tasks.empty:
+                st.caption("No completed tasks.")
             for _, row in completed_tasks.iterrows():
-                render_task_card(row)
+                render_task_card(row, "done")
