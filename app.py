@@ -36,6 +36,12 @@ st.markdown("""
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             text-decoration: none;
         }
+        .custom-icon {
+            width: 16px;
+            height: 16px;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -67,7 +73,7 @@ def fetch_data(sheet_name):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet(sheet_name)
     df = pd.DataFrame(sheet.get_all_records())
     if 'Priority' not in df.columns:
-        df['Priority'] = '🟡 Medium'
+        df['Priority'] = '🟢 Regular'
     if 'ItemType' not in df.columns:
         df['ItemType'] = 'Task'
     return df
@@ -153,11 +159,12 @@ def parse_deadline(deadline_str):
             continue
     return None
 
-def send_telegram_alert(chat_id, task_title, assigned_by, deadline, description, priority="🟡 Medium", item_type="Task"):
+def send_telegram_alert(chat_id, task_title, assigned_by, deadline, description, priority="🟢 Regular", item_type="Task", assignee_name="STAFF", assignee_dept="General"):
     if not chat_id:
         return
     message = (
-        f"🚨 *New {item_type} Assigned!*\n\n"
+        f"🚨 *New {item_type} Assigned!*\n"
+        f"👤 *For:* {assignee_name.upper()} ({assignee_dept} Dept)\n"
         f"📌 *Priority:* {priority}\n"
         f"📋 *Title:* {task_title}\n"
         f"🏢 *From:* {assigned_by}\n"
@@ -221,7 +228,7 @@ else:
         st.divider()
         if user['role'] in ['CEO', 'GM', 'HOD']:
             st.markdown("### 🧹 Maintenance")
-            if st.button("🗑️ Clear All Completed Tasks", use_container_width=True):
+            if st.button(f"🗑️ Clear All Completed Tasks", use_container_width=True):
                 with st.spinner("Cleaning up completed tasks..."):
                     clear_all_completed_tasks()
                     fetch_data.clear()
@@ -241,10 +248,8 @@ else:
         if all_df.empty:
             st.info("No items in the system yet.")
         else:
-            # Section Selector: Operational Tasks vs. Reminders
             view_mode = st.radio("View Section:", ["📋 Operational Tasks", "⏰ Reminders"], horizontal=True, label_visibility="collapsed")
             
-            # Filter ItemType ("Task" vs "Reminder")
             if 'ItemType' in all_df.columns:
                 if view_mode == "📋 Operational Tasks":
                     tasks_df = all_df[all_df['ItemType'].isin(['Task', '', None])]
@@ -267,7 +272,6 @@ else:
                 tasks_df['is_overdue'] = tasks_df.apply(check_is_overdue, axis=1)
                 overdue_tasks = tasks_df[tasks_df['is_overdue'] == True]
 
-                # Role-based filtering
                 if user['role'] in ['CEO', 'GM']:
                     role_tasks_df = tasks_df
                 elif user['role'] == 'HOD':
@@ -286,14 +290,12 @@ else:
                 def render_task_card(row, tab_prefix):
                     is_overdue = row.get('is_overdue', False)
                     status = str(row.get('Status', '')).strip()
-                    priority = str(row.get('Priority', '🟡 Medium')).strip()
+                    priority = str(row.get('Priority', '🟢 Regular')).strip()
                     
                     if "High" in priority:
                         priority_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🔴 HIGH PRIORITY</span>"
-                    elif "Low" in priority:
-                        priority_badge = " <span style='background-color:#F3F4F6; color:#4B5563; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🟢 Low</span>"
                     else:
-                        priority_badge = " <span style='background-color:#FEF3C7; color:#D97706; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🟡 Medium</span>"
+                        priority_badge = " <span style='background-color:#ECFDF5; color:#059669; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🟢 Regular</span>"
 
                     deadline_color = "#DC2626" if is_overdue else "#D97706"
                     overdue_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🚨 OVERDUE</span>" if is_overdue else ""
@@ -317,12 +319,22 @@ else:
                             """, unsafe_allow_html=True)
 
                         with c2:
-                            view_btn = st.button("📎", key=f"att_{tab_prefix}_{row['Task ID']}", help="View Attachments")
+                            # Render custom small Paperclip HTML image icon inside markdown button wrapper
+                            view_clicked = st.button(
+                                "📎 View", 
+                                key=f"att_{tab_prefix}_{row['Task ID']}", 
+                                help="View Attachments"
+                            )
 
                         if can_manage and c3 is not None:
                             with c3:
-                                del_btn = st.button("🗑️", key=f"del_{tab_prefix}_{row['Task ID']}", help="Delete Task")
-                                if del_btn:
+                                # Render custom small Recycle Bin HTML image icon inside delete button wrapper
+                                del_clicked = st.button(
+                                    "🗑️ Del", 
+                                    key=f"del_{tab_prefix}_{row['Task ID']}", 
+                                    help="Delete Task"
+                                )
+                                if del_clicked:
                                     with st.spinner("Deleting task..."):
                                         delete_task_from_sheet(row['Task ID'])
                                         fetch_data.clear()
@@ -348,7 +360,7 @@ else:
                                     fetch_data.clear()
                                     st.rerun()
 
-                        if view_btn:
+                        if view_clicked:
                             with st.spinner("Loading attachments..."):
                                 items = fetch_attachments_from_drive(row['Task ID'])
                                 if not items:
@@ -370,7 +382,7 @@ else:
                 def sort_by_priority(df_subset):
                     if df_subset.empty:
                         return df_subset
-                    p_order = {"🔴 High Priority": 0, "🔴 High": 0, "🟡 Medium": 1, "🟢 Low": 2}
+                    p_order = {"🔴 High Priority": 0, "🔴 High": 0, "🟢 Regular": 1}
                     df_subset['p_rank'] = df_subset['Priority'].map(lambda x: p_order.get(str(x).strip(), 1))
                     return df_subset.sort_values(by='p_rank', ascending=True)
 
@@ -416,7 +428,8 @@ else:
                 title = st.text_input("Task Title", key=f"t_title_{fk}")
                 desc = st.text_area("Details", key=f"t_desc_{fk}", height=80)
                 
-                priority = st.selectbox("Task Priority", ["🔴 High Priority", "🟡 Medium", "🟢 Low"], index=0, key=f"t_prio_{fk}")
+                # Default to Regular priority
+                priority = st.selectbox("Task Priority", ["🟢 Regular", "🔴 High Priority"], index=0, key=f"t_prio_{fk}")
                 
                 users_df = fetch_data("User_list")
                 
@@ -438,7 +451,7 @@ else:
                 with col_t:
                     deadline_t = st.time_input("Time", value=now_ist().time().replace(second=0, microsecond=0), key=f"t_time_{fk}")
                 
-                uploaded_files = st.file_uploader("📎 Add Photos/Files", accept_multiple_files=True, key=f"t_files_{fk}")
+                uploaded_files = st.file_uploader("Add Photos/Files", accept_multiple_files=True, key=f"t_files_{fk}")
                 audio_recording = st.audio_input("🎙️ Record Voice Note", key=f"t_audio_{fk}")
                 
                 if st.button("Assign Task", use_container_width=True, type="primary"):
@@ -467,7 +480,7 @@ else:
                             assignee_row = users_df[users_df['NAME'] == assignee]
                             telegram_id = assignee_row['TELEGRAM_ID'].values[0] if 'TELEGRAM_ID' in assignee_row.columns else None
                             if pd.notna(telegram_id) and str(telegram_id).strip() != "":
-                                send_telegram_alert(telegram_id, title, user['name'], deadline_str, desc, priority, "Task")
+                                send_telegram_alert(telegram_id, title, user['name'], deadline_str, desc, priority, "Task", assignee, assigned_dept)
 
                             fetch_data.clear()
                             st.session_state.form_key += 1
@@ -504,7 +517,7 @@ else:
                             assigned_dept = users_df[users_df['NAME'] == d_assignee]['DEPARTMENT'].values[0]
                             created_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
                             deadline_str = f"Daily at {d_time.strftime('%I:%M %p')}"
-                            priority = "🟡 Medium"
+                            priority = "🟢 Regular"
                             
                             task_row = [
                                 task_id, f"Daily: {d_title}", "Recurring Daily Routine", user['name'], assigned_dept,
@@ -515,7 +528,7 @@ else:
                             assignee_row = users_df[users_df['NAME'] == d_assignee]
                             telegram_id = assignee_row['TELEGRAM_ID'].values[0] if 'TELEGRAM_ID' in assignee_row.columns else None
                             if pd.notna(telegram_id) and str(telegram_id).strip() != "":
-                                send_telegram_alert(telegram_id, f"Daily: {d_title}", user['name'], deadline_str, "Recurring Daily Routine", priority, "Reminder")
+                                send_telegram_alert(telegram_id, f"Daily: {d_title}", user['name'], deadline_str, "Recurring Daily Routine", priority, "Reminder", d_assignee, assigned_dept)
 
                             fetch_data.clear()
                         st.success(f"✅ Daily reminder '{d_title}' set for {d_assignee}!")
@@ -536,7 +549,7 @@ else:
                             assigned_dept = users_df[users_df['NAME'] == w_assignee]['DEPARTMENT'].values[0]
                             created_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
                             deadline_str = f"Every {w_day}"
-                            priority = "🟡 Medium"
+                            priority = "🟢 Regular"
                             
                             task_row = [
                                 task_id, f"Weekly: {w_title}", f"Recurring Weekly Routine on {w_day}", user['name'], assigned_dept,
@@ -547,7 +560,7 @@ else:
                             assignee_row = users_df[users_df['NAME'] == w_assignee]
                             telegram_id = assignee_row['TELEGRAM_ID'].values[0] if 'TELEGRAM_ID' in assignee_row.columns else None
                             if pd.notna(telegram_id) and str(telegram_id).strip() != "":
-                                send_telegram_alert(telegram_id, f"Weekly: {w_title}", user['name'], deadline_str, f"Recurring Weekly Routine on {w_day}", priority, "Reminder")
+                                send_telegram_alert(telegram_id, f"Weekly: {w_title}", user['name'], deadline_str, f"Recurring Weekly Routine on {w_day}", priority, "Reminder", w_assignee, assigned_dept)
 
                             fetch_data.clear()
                         st.success(f"✅ Weekly reminder '{w_title}' set for {w_assignee}!")
@@ -568,7 +581,7 @@ else:
                             assigned_dept = users_df[users_df['NAME'] == m_assignee]['DEPARTMENT'].values[0]
                             created_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
                             deadline_str = f"Monthly on Day {m_date}"
-                            priority = "🟡 Medium"
+                            priority = "🟢 Regular"
                             
                             task_row = [
                                 task_id, f"Monthly: {m_title}", f"Recurring Monthly Routine on Day {m_date}", user['name'], assigned_dept,
@@ -579,7 +592,7 @@ else:
                             assignee_row = users_df[users_df['NAME'] == m_assignee]
                             telegram_id = assignee_row['TELEGRAM_ID'].values[0] if 'TELEGRAM_ID' in assignee_row.columns else None
                             if pd.notna(telegram_id) and str(telegram_id).strip() != "":
-                                send_telegram_alert(telegram_id, f"Monthly: {m_title}", user['name'], deadline_str, f"Recurring Monthly Routine on Day {m_date}", priority, "Reminder")
+                                send_telegram_alert(telegram_id, f"Monthly: {m_title}", user['name'], deadline_str, f"Recurring Monthly Routine on Day {m_date}", priority, "Reminder", m_assignee, assigned_dept)
 
                             fetch_data.clear()
                         st.success(f"✅ Monthly reminder '{m_title}' set for {m_assignee}!")
