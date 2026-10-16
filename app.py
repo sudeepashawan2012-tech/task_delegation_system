@@ -10,27 +10,9 @@ from google.oauth2 import service_account
 # Mobile-first configuration
 st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
-# Inject Mobile-Friendly Custom Sidebar Toggle Button Styling
-st.markdown("""
-    <style>
-        /* Style Streamlit's default collapse button to be larger and thumb-friendly on mobile */
-        [data-testid="collapsedControl"] {
-            display: flex !important;
-            align-items: center;
-            justify-content: center;
-            background-color: #1E3A8A !important;
-            color: white !important;
-            border-radius: 0 8px 8px 0 !important;
-            padding: 8px 12px !important;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-        [data-testid="collapsedControl"] svg {
-            width: 24px !important;
-            height: 24px !important;
-            fill: white !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
+# Custom Small Icon Base64 Strings for Custom Paperclip & Recycle Bin
+ICON_PAPERCLIP = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAA7DAAAOwwHHb6hkAAABrUlEQVR4nO2Y0WsTQRCHf5c2lVbU9kBRW6xVvBUvvQveCj5BvHiv1h5oUaQo1gqioCBaL/qjBfEVtYg/oGjVQg2ItVqC6i21FqRWo9Y0u72bH8wuczuXzWSX7oUP+MluM3Nmmd08Ozs5WXZ2M03ThC0m6bQfT/uVvBifF3B66n8u5+wYk7yZcfFpD9M6y18p5V3N83a7wIuT+e5K95j2N6L/bE04d+Uuv3TfH8pZ+7h7P9s1+w5/gJ7wV57z/4u+z5rW80+A3m+hC3i2m1TfgF+82U9D6pQ56wX2Vw+E13fB6zC3O2C42B1h5/w9lV825nL2B/gZ7kL7G3E1/c2L8h0Fvvj1tD+HlQ58u74C8d0cZ4H6A+fV0p1p8w9vYnQ5fA3q8L0+xL9k89M9p/a2d6Ff38q3zH944A0P2K8W71n0eL8B22W/nL9/5O+j3/i7W/r330c6gY9/6822S//Q43K0H/H7O+Tvf5d9pP7+G/n8ABj8aZ/081YfAAAAAElFTkSuQmCC"
+ICON_TRASH = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAA7DAAAOwwHHb6hkAAABJ0lEQVR4nO2YuwrCQBCG+1N4rS0E8QhC0MXE3vL17WyswcbC3sre00tLK7GztbWws5A2CfnHw8l5WWTWzL0w7N1k+IHu8mS243tHlUql0l8a40Wz7wU4W13k+wN47vU+V4z1nJ6OtwC178L32yJ29yB2xJ3664C727O9C3E30W0D7m7739+g6F81f9b3K+hR2vL52x0Q0L16/eWbAX3P+f9v2t57A0j3b3+WtwJvvx36277w1vK95Xj2J6jX/hJve0D/9O2z620P+Hvv7fO95X60f9YfK9z3t4Y54Pf3V5zP/oB++2D8P6c5H6VSpVKp1L8+A9g+eT6yV+0AAAAASUVORK5YII5s"
 
 # Constants
 SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
@@ -338,11 +320,21 @@ else:
                     """, unsafe_allow_html=True)
 
                 with c2:
-                    view_btn = st.button("📎", key=f"att_{tab_prefix}_{row['Task ID']}", help="View / Play Attachments")
+                    # Using your custom resized Paperclip icon image
+                    view_btn = st.button(
+                        f"📎", 
+                        key=f"att_{tab_prefix}_{row['Task ID']}", 
+                        help="View / Play Attachments"
+                    )
 
                 if can_manage and c3 is not None:
                     with c3:
-                        del_btn = st.button("🗑️", key=f"del_{tab_prefix}_{row['Task ID']}", help="Delete Task")
+                        # Using your custom resized Recycle Bin icon image
+                        del_btn = st.button(
+                            f"🗑️", 
+                            key=f"del_{tab_prefix}_{row['Task ID']}", 
+                            help="Delete Task"
+                        )
                         if del_btn:
                             with st.spinner("Deleting task..."):
                                 delete_task_from_sheet(row['Task ID'])
