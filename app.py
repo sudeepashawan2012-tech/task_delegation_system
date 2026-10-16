@@ -10,11 +10,7 @@ from google.oauth2 import service_account
 # Mobile-first configuration
 st.set_page_config(page_title="Task Pro", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
-# Custom Small Icon Base64 Strings for Custom Paperclip & Recycle Bin
-ICON_PAPERCLIP = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAA7DAAAOwwHHb6hkAAABrUlEQVR4nO2Y0WsTQRCHf5c2lVbU9kBRW6xVvBUvvQveCj5BvHiv1h5oUaQo1gqioCBaL/qjBfEVtYg/oGjVQg2ItVqC6i21FqRWo9Y0u72bH8wuczuXzWSX7oUP+MluM3Nmmd08Ozs5WXZ2M03ThC0m6bQfT/uVvBifF3B66n8u5+wYk7yZcfFpD9M6y18p5V3N83a7wIuT+e5K95j2N6L/bE04d+Uuv3TfH8pZ+7h7P9s1+w5/gJ7wV57z/4u+z5rW80+A3m+hC3i2m1TfgF+82U9D6pQ56wX2Vw+E13fB6zC3O2C42B1h5/w9lV825nL2B/gZ7kL7G3E1/c2L8h0Fvvj1tD+HlQ58u74C8d0cZ4H6A+fV0p1p8w9vYnQ5fA3q8L0+xL9k89M9p/a2d6Ff38q3zH944A0P2K8W71n0eL8B22W/nL9/5O+j3/i7W/r330c6gY9/6822S//Q43K0H/H7O+Tvf5d9pP7+G/n8ABj8aZ/081YfAAAAAElFTkSuQmCC"
-ICON_TRASH = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAA7DAAAOwwHHb6hkAAABJ0lEQVR4nO2YuwrCQBCG+1N4rS0E8QhC0MXE3vL17WyswcbC3sre00tLK7GztbWws5A2CfnHw8l5WWTWzL0w7N1k+IHu8mS243tHlUql0l8a40Wz7wU4W13k+wN47vU+V4z1nJ6OtwC178L32yJ29yB2xJ3664C727O9C3E30W0D7m7739+g6F81f9b3K+hR2vL52x0Q0L16/eWbAX3P+f9v2t57A0j3b3+WtwJvvx36277w1vK95Xj2J6jX/hJve0D/9O2z620P+Hvv7fO95X60f9YfK9z3t4Y54Pf3V5zP/oB++2D8P6c5H6VSpVKp1L8+A9g+eT6yV+0AAAAASUVORK5YII5s"
-
-# Inject Mobile-Friendly CSS for Floating Action Button (FAB) & Styling
+# Inject Mobile-Friendly CSS for Styling
 st.markdown("""
     <style>
         .fab-container {
@@ -35,12 +31,6 @@ st.markdown("""
             font-size: 28px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             text-decoration: none;
-        }
-        .custom-icon {
-            width: 16px;
-            height: 16px;
-            vertical-align: middle;
-            margin-right: 4px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -72,23 +62,27 @@ gs_client = get_gcp_client()
 def fetch_data(sheet_name):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet(sheet_name)
     df = pd.DataFrame(sheet.get_all_records())
-    if 'Priority' not in df.columns:
-        df['Priority'] = '🟢 Regular'
-    if 'ItemType' not in df.columns:
-        df['ItemType'] = 'Task'
+    
+    required_cols = {'Priority': '🟢 Regular', 'ItemType': 'Task', 'Review Notes': '', 'Submitted At': ''}
+    for col, default_val in required_cols.items():
+        if col not in df.columns:
+            df[col] = default_val
     return df
 
 def append_task(task_data):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     sheet.append_row(task_data)
 
-def update_task_status(task_id, new_status):
+def update_task_fields(task_id, updates_dict):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     cell = sheet.find(str(task_id), in_column=1)
     if cell:
         headers = sheet.row_values(1)
-        status_col = headers.index("Status") + 1 if "Status" in headers else 9
-        sheet.update_cell(cell.row, status_col, new_status)
+        row_idx = cell.row
+        for col_name, val in updates_dict.items():
+            if col_name in headers:
+                col_idx = headers.index(col_name) + 1
+                sheet.update_cell(row_idx, col_idx, str(val))
 
 def delete_task_from_sheet(task_id):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
@@ -116,7 +110,7 @@ def clear_all_completed_tasks():
 
 def upload_bytes_to_drive(file_bytes, filename, mimetype):
     if not GAS_WEBAPP_URL.startswith("http"):
-        st.error("⚠️ Please paste your Google Apps Script Web App URL into GAS_WEBAPP_URL first.")
+        st.error("⚠️ Please configure your Google Apps Script Web App URL.")
         st.stop()
     payload = {
         "action": "upload",
@@ -128,7 +122,7 @@ def upload_bytes_to_drive(file_bytes, filename, mimetype):
     try:
         res_json = resp.json()
     except Exception:
-        st.error("Drive Bridge Error: Make sure your Apps Script deployment has 'Who has access' set to 'Anyone'.")
+        st.error("Drive Bridge Error: Make sure Apps Script access is set to 'Anyone'.")
         st.stop()
 
     if res_json.get("status") != "success":
@@ -228,7 +222,7 @@ else:
         st.divider()
         if user['role'] in ['CEO', 'GM', 'HOD']:
             st.markdown("### 🧹 Maintenance")
-            if st.button(f"🗑️ Clear All Completed Tasks", use_container_width=True):
+            if st.button("🗑️ Clear All Completed Tasks", use_container_width=True):
                 with st.spinner("Cleaning up completed tasks..."):
                     clear_all_completed_tasks()
                     fetch_data.clear()
@@ -239,7 +233,7 @@ else:
     main_tab1, main_tab2, main_tab3 = st.tabs(["📋 Task Pro", "➕ Create Task", "⏰ Set Reminder"])
 
     # ==========================================
-    # TAB 1: TASK PRO (Workspace with Tasks vs. Reminders Separation & Priority Sort)
+    # TAB 1: TASK PRO (Workspace & Filtering)
     # ==========================================
     with main_tab1:
         st.header("Workspace")
@@ -273,11 +267,13 @@ else:
                 overdue_tasks = tasks_df[tasks_df['is_overdue'] == True]
 
                 if user['role'] in ['CEO', 'GM']:
-                    role_tasks_df = tasks_df
+                    role_tasks_df = tasks_df[tasks_df['Assigned By'] == user['name']]
+                    overdue_tasks = overdue_tasks[overdue_tasks['Assigned By'] == user['name']]
                 elif user['role'] == 'HOD':
-                    role_tasks_df = tasks_df[(tasks_df['Assigned Dept'] == user['dept']) | (tasks_df['Assigned To'] == user['name'])]
+                    role_tasks_df = tasks_df[(tasks_df['Assigned By'] == user['name']) | (tasks_df['Assigned Dept'] == user['dept']) | (tasks_df['Assigned To'] == user['name'])]
                 else:
                     role_tasks_df = tasks_df[tasks_df['Assigned To'] == user['name']]
+                    overdue_tasks = overdue_tasks[overdue_tasks['Assigned To'] == user['name']]
 
                 overdue_count = len(overdue_tasks)
                 sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
@@ -291,6 +287,8 @@ else:
                     is_overdue = row.get('is_overdue', False)
                     status = str(row.get('Status', '')).strip()
                     priority = str(row.get('Priority', '🟢 Regular')).strip()
+                    review_notes = str(row.get('Review Notes', '')).strip()
+                    submitted_at = str(row.get('Submitted At', '')).strip()
                     
                     if "High" in priority:
                         priority_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🔴 HIGH PRIORITY</span>"
@@ -301,39 +299,36 @@ else:
                     overdue_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🚨 OVERDUE</span>" if is_overdue else ""
 
                     with st.container(border=True):
-                        can_manage = user['role'] in ['CEO', 'GM', 'HOD']
+                        can_manage = (user['role'] in ['CEO', 'GM', 'HOD'] and row['Assigned By'] == user['name']) or user['role'] in ['CEO', 'GM']
+                        
+                        cols_layout = [0.76, 0.12, 0.12] if can_manage else [0.85, 0.15]
                         if can_manage:
-                            c1, c2, c3 = st.columns([0.76, 0.12, 0.12])
+                            c1, c2, c3 = st.columns(cols_layout)
                         else:
-                            c1, c2 = st.columns([0.85, 0.15])
+                            c1, c2 = st.columns(cols_layout)
                             c3 = None
 
                         with c1:
+                            notes_html = f"<br>💬 <b>Notes/Thread:</b> _{review_notes}_" if review_notes else ""
+                            submitted_html = f"<br>⏱️ <b>Submitted At:</b> {submitted_at}" if submitted_at else ""
+                            
                             st.markdown(f"""
                                 <div style='line-height: 1.35;'>
                                     <b style='font-size:16px;'>{row['Title']}</b> <span style='font-size:11px;color:gray;'>{row['Task ID']}</span>{priority_badge}{overdue_badge}<br>
                                     <span style='font-size:13px; color:#1E3A8A;'>🏢 {row['Assigned By']} &nbsp;➡️&nbsp; 👷‍♂️ {row['Assigned To']} ({row['Assigned Dept']})</span><br>
                                     <span style='font-size:14px; color:#333;'>{row['Description']}</span><br>
-                                    <span style='font-size:12px; font-weight:bold; color:{deadline_color};'>📅 {row['Deadline']}</span>
+                                    <span style='font-size:12px; font-weight:bold; color:{deadline_color};'>📅 Deadline: {row['Deadline']}</span>
+                                    {submitted_html}
+                                    {notes_html}
                                 </div>
                             """, unsafe_allow_html=True)
 
                         with c2:
-                            # Render custom small Paperclip HTML image icon inside markdown button wrapper
-                            view_clicked = st.button(
-                                "📎 View", 
-                                key=f"att_{tab_prefix}_{row['Task ID']}", 
-                                help="View Attachments"
-                            )
+                            view_clicked = st.button("📎 View", key=f"att_{tab_prefix}_{row['Task ID']}", help="View Attachments")
 
                         if can_manage and c3 is not None:
                             with c3:
-                                # Render custom small Recycle Bin HTML image icon inside delete button wrapper
-                                del_clicked = st.button(
-                                    "🗑️ Del", 
-                                    key=f"del_{tab_prefix}_{row['Task ID']}", 
-                                    help="Delete Task"
-                                )
+                                del_clicked = st.button("🗑️ Del", key=f"del_{tab_prefix}_{row['Task ID']}", help="Delete Task")
                                 if del_clicked:
                                     with st.spinner("Deleting task..."):
                                         delete_task_from_sheet(row['Task ID'])
@@ -342,22 +337,48 @@ else:
                                     st.rerun()
 
                         if status == "Assigned":
-                            if user['name'] == row['Assigned To'] or can_manage:
+                            if user['name'] == row['Assigned To']:
+                                st.write("")
+                                user_msg = st.text_input("Personal Message / Status Note (e.g., Done, will complete by tomorrow)", key=f"msg_{tab_prefix}_{row['Task ID']}")
                                 if st.button("📤 Submit for Review", key=f"sub_{tab_prefix}_{row['Task ID']}", use_container_width=True):
-                                    update_task_status(row['Task ID'], "Under Review")
+                                    current_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
+                                    updated_notes = f"[{user['name']} - {current_str}]: {user_msg}" if user_msg else f"[{user['name']} - {current_str}]: Submitted for review."
+                                    if review_notes:
+                                        updated_notes = f"{review_notes} | {updated_notes}"
+                                    
+                                    update_task_fields(row['Task ID'], {
+                                        "Status": "Under Review",
+                                        "Review Notes": updated_notes,
+                                        "Submitted At": current_str
+                                    })
                                     fetch_data.clear()
+                                    st.toast("Submitted for review!", icon="📤")
                                     st.rerun()
-                        elif status == "Under Review" and can_manage:
+                        elif status == "Under Review" and (row['Assigned By'] == user['name'] or user['role'] in ['CEO', 'GM']):
+                            st.write("")
+                            manager_reply = st.text_input("Manager Feedback / Reply Note", key=f"reply_{tab_prefix}_{row['Task ID']}")
                             b1, b2 = st.columns(2)
                             with b1:
                                 if st.button("✅ Approve & Complete", key=f"app_{tab_prefix}_{row['Task ID']}", use_container_width=True, type="primary"):
-                                    update_task_status(row['Task ID'], "Completed")
+                                    current_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
+                                    updated_notes = f"{review_notes} | [Manager Approved - {current_str}]: {manager_reply}" if manager_reply else review_notes
+                                    update_task_fields(row['Task ID'], {
+                                        "Status": "Completed",
+                                        "Review Notes": updated_notes
+                                    })
                                     fetch_data.clear()
+                                    st.toast("Task approved and completed!", icon="✅")
                                     st.rerun()
                             with b2:
                                 if st.button("↩️ Send Back", key=f"ret_{tab_prefix}_{row['Task ID']}", use_container_width=True):
-                                    update_task_status(row['Task ID'], "Assigned")
+                                    current_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
+                                    updated_notes = f"{review_notes} | [Sent Back by {user['name']} - {current_str}]: {manager_reply}" if manager_reply else f"{review_notes} | [Sent Back - {current_str}]"
+                                    update_task_fields(row['Task ID'], {
+                                        "Status": "Assigned",
+                                        "Review Notes": updated_notes
+                                    })
                                     fetch_data.clear()
+                                    st.toast("Task sent back for revision!", icon="↩️")
                                     st.rerun()
 
                         if view_clicked:
@@ -395,9 +416,9 @@ else:
 
                 with sub_tab2:
                     if overdue_tasks.empty:
-                        st.success("🎉 Zero overdue items across the workspace!")
+                        st.success("🎉 Zero overdue items across your assigned workspace!")
                     else:
-                        st.caption("Showing all overdue items across departments:")
+                        st.caption("Showing all overdue items:")
                         for _, row in overdue_tasks.iterrows():
                             render_task_card(row, "ovr")
 
@@ -428,7 +449,6 @@ else:
                 title = st.text_input("Task Title", key=f"t_title_{fk}")
                 desc = st.text_area("Details", key=f"t_desc_{fk}", height=80)
                 
-                # Default to Regular priority
                 priority = st.selectbox("Task Priority", ["🟢 Regular", "🔴 High Priority"], index=0, key=f"t_prio_{fk}")
                 
                 users_df = fetch_data("User_list")
@@ -473,7 +493,7 @@ else:
                             
                             task_row = [
                                 task_id, title, desc, user['name'], assigned_dept,
-                                assignee, created_str, deadline_str, "Assigned", "", "", priority, "Task"
+                                assignee, created_str, deadline_str, "Assigned", "", "", priority, "Task", ""
                             ]
                             append_task(task_row)
                             
@@ -491,7 +511,7 @@ else:
                         st.error("Title and Assignee are required.")
 
     # ==========================================
-    # TAB 3: SET REMINDER (Daily, Weekly, Monthly)
+    # TAB 3: SET REMINDER
     # ==========================================
     with main_tab3:
         st.header("⏰ Reminder Center")
@@ -521,7 +541,7 @@ else:
                             
                             task_row = [
                                 task_id, f"Daily: {d_title}", "Recurring Daily Routine", user['name'], assigned_dept,
-                                d_assignee, created_str, deadline_str, "Assigned", "", "", priority, "Reminder"
+                                d_assignee, created_str, deadline_str, "Assigned", "", "", priority, "Reminder", ""
                             ]
                             append_task(task_row)
                             
@@ -553,7 +573,7 @@ else:
                             
                             task_row = [
                                 task_id, f"Weekly: {w_title}", f"Recurring Weekly Routine on {w_day}", user['name'], assigned_dept,
-                                w_assignee, created_str, deadline_str, "Assigned", "", "", priority, "Reminder"
+                                w_assignee, created_str, deadline_str, "Assigned", "", "", priority, "Reminder", ""
                             ]
                             append_task(task_row)
                             
@@ -585,7 +605,7 @@ else:
                             
                             task_row = [
                                 task_id, f"Monthly: {m_title}", f"Recurring Monthly Routine on Day {m_date}", user['name'], assigned_dept,
-                                m_assignee, created_str, deadline_str, "Assigned", "", "", priority, "Reminder"
+                                m_assignee, created_str, deadline_str, "Assigned", "", "", priority, "Reminder", ""
                             ]
                             append_task(task_row)
                             
