@@ -10,27 +10,19 @@ from google.oauth2 import service_account
 # Mobile-first configuration
 st.set_page_config(page_title="Task Pro", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
-# Inject Mobile-Friendly CSS for Styling
+# Inject Mobile-Friendly CSS for Styling, Larger Text, & Color-Coded Buttons
 st.markdown("""
     <style>
-        .fab-container {
-            position: fixed;
-            bottom: 25px;
-            right: 25px;
-            z-index: 999;
+        .stButton>button {
+            border-radius: 8px;
+            font-weight: 600;
         }
-        .fab-btn {
-            background-color: #1E3A8A;
-            color: white;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 28px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            text-decoration: none;
+        /* Mobile font boost & clean card spacing */
+        p, div, span, label {
+            font-size: 15px !important;
+        }
+        .stTextInput input, .stTextArea textarea, .stSelectbox select {
+            font-size: 16px !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -156,14 +148,14 @@ def parse_deadline(deadline_str):
 def send_telegram_alert(chat_id, task_title, assigned_by, deadline, description, priority="🟢 Regular", item_type="Task", assignee_name="STAFF", assignee_dept="General"):
     if not chat_id:
         return
+    # Exact requested template structure
     message = (
-        f"🚨 *New {item_type} Assigned!*\n"
-        f"👤 *For:* {assignee_name.upper()} ({assignee_dept} Dept)\n"
-        f"📌 *Priority:* {priority}\n"
-        f"📋 *Title:* {task_title}\n"
-        f"🏢 *From:* {assigned_by}\n"
-        f"📅 *Deadline:* {deadline}\n\n"
-        f"📝 *Details:*\n_{description}_"
+        f"🚨Title: {task_title}\n"
+        f"🏢 From: {assigned_by}\n"
+        f"👤 For: {assignee_name.upper()} ({assignee_dept} Dept)\n"
+        f"📌 Priority: {priority}\n"
+        f"📅 Deadline: {deadline}\n\n"
+        f"📝 Details:\n_{description}_"
     )
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": str(chat_id).strip(), "text": message, "parse_mode": "Markdown"}
@@ -289,19 +281,34 @@ else:
                     priority = str(row.get('Priority', '🟢 Regular')).strip()
                     review_notes = str(row.get('Review Notes', '')).strip()
                     submitted_at = str(row.get('Submitted At', '')).strip()
+                    task_id = row['Task ID']
                     
                     if "High" in priority:
-                        priority_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🔴 HIGH PRIORITY</span>"
+                        priority_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:bold;'>🔴 HIGH PRIORITY</span>"
                     else:
-                        priority_badge = " <span style='background-color:#ECFDF5; color:#059669; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🟢 Regular</span>"
+                        priority_badge = " <span style='background-color:#ECFDF5; color:#059669; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:bold;'>🟢 Regular</span>"
 
                     deadline_color = "#DC2626" if is_overdue else "#D97706"
-                    overdue_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🚨 OVERDUE</span>" if is_overdue else ""
+                    overdue_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:bold;'>🚨 OVERDUE</span>" if is_overdue else ""
+
+                    # Quick check for attachments to show badges immediately on the card
+                    attachments = fetch_attachments_from_drive(task_id)
+                    file_count = sum(1 for a in attachments if "audio" not in a.get('mimeType', ''))
+                    audio_count = sum(1 for a in attachments if "audio" in a.get('mimeType', ''))
+                    
+                    att_badge_html = ""
+                    if file_count > 0 or audio_count > 0:
+                        badges = []
+                        if file_count > 0:
+                            badges.append(f"📎 {file_count} File(s)")
+                        if audio_count > 0:
+                            badges.append(f"🎙️ {audio_count} Voice Note")
+                        att_badge_html = f"<div style='margin-top:6px; font-size:13px; color:#2563EB; font-weight:600;'>{' | '.join(badges)}</div>"
 
                     with st.container(border=True):
                         can_manage = (user['role'] in ['CEO', 'GM', 'HOD'] and row['Assigned By'] == user['name']) or user['role'] in ['CEO', 'GM']
                         
-                        cols_layout = [0.76, 0.12, 0.12] if can_manage else [0.85, 0.15]
+                        cols_layout = [0.70, 0.15, 0.15] if can_manage else [0.80, 0.20]
                         if can_manage:
                             c1, c2, c3 = st.columns(cols_layout)
                         else:
@@ -309,60 +316,67 @@ else:
                             c3 = None
 
                         with c1:
-                            notes_html = f"<br>💬 <b>Notes/Thread:</b> _{review_notes}_" if review_notes else ""
+                            # Formatted chat-style thread box for review notes
+                            notes_html = ""
+                            if review_notes:
+                                formatted_notes = review_notes.replace(" | ", "<br><br>")
+                                notes_html = f"<div style='margin-top:8px; padding:10px; background-color:#F3F4F6; border-left:4px solid #1E3A8A; border-radius:4px; font-size:13px;'><b>💬 Conversation Thread:</b><br>{formatted_notes}</div>"
+                            
                             submitted_html = f"<br>⏱️ <b>Submitted At:</b> {submitted_at}" if submitted_at else ""
                             
                             st.markdown(f"""
-                                <div style='line-height: 1.35;'>
-                                    <b style='font-size:16px;'>{row['Title']}</b> <span style='font-size:11px;color:gray;'>{row['Task ID']}</span>{priority_badge}{overdue_badge}<br>
-                                    <span style='font-size:13px; color:#1E3A8A;'>🏢 {row['Assigned By']} &nbsp;➡️&nbsp; 👷‍♂️ {row['Assigned To']} ({row['Assigned Dept']})</span><br>
-                                    <span style='font-size:14px; color:#333;'>{row['Description']}</span><br>
-                                    <span style='font-size:12px; font-weight:bold; color:{deadline_color};'>📅 Deadline: {row['Deadline']}</span>
+                                <div style='line-height: 1.4;'>
+                                    <b style='font-size:17px;'>{row['Title']}</b> <span style='font-size:12px;color:gray;'>{task_id}</span>{priority_badge}{overdue_badge}<br>
+                                    <span style='font-size:14px; color:#1E3A8A;'>🏢 <b>{row['Assigned By']}</b> &nbsp;➡️&nbsp; 👷‍♂️ <b>{row['Assigned To']}</b> ({row['Assigned Dept']})</span><br>
+                                    <span style='font-size:15px; color:#222;'>{row['Description']}</span><br>
+                                    <span style='font-size:13px; font-weight:bold; color:{deadline_color};'>📅 Deadline: {row['Deadline']}</span>
                                     {submitted_html}
+                                    {att_badge_html}
                                     {notes_html}
                                 </div>
                             """, unsafe_allow_html=True)
 
                         with c2:
-                            view_clicked = st.button("📎 View", key=f"att_{tab_prefix}_{row['Task ID']}", help="View Attachments")
+                            view_clicked = st.button("📎 View", key=f"att_{tab_prefix}_{task_id}", help="View Attachments")
 
                         if can_manage and c3 is not None:
                             with c3:
-                                del_clicked = st.button("🗑️ Del", key=f"del_{tab_prefix}_{row['Task ID']}", help="Delete Task")
+                                del_clicked = st.button("🗑️ Delete", key=f"del_{tab_prefix}_{task_id}", help="Delete Task")
                                 if del_clicked:
                                     with st.spinner("Deleting task..."):
-                                        delete_task_from_sheet(row['Task ID'])
+                                        delete_task_from_sheet(task_id)
                                         fetch_data.clear()
-                                    st.toast(f"Deleted {row['Task ID']}", icon="🗑️")
+                                    st.toast(f"Deleted {task_id}", icon="🗑️")
                                     st.rerun()
 
                         if status == "Assigned":
                             if user['name'] == row['Assigned To']:
                                 st.write("")
-                                user_msg = st.text_input("Personal Message / Status Note (e.g., Done, will complete by tomorrow)", key=f"msg_{tab_prefix}_{row['Task ID']}")
-                                if st.button("📤 Submit for Review", key=f"sub_{tab_prefix}_{row['Task ID']}", use_container_width=True):
+                                user_msg = st.text_input("Personal Remark / Status Note (e.g., Done, will complete by tomorrow)", key=f"msg_{tab_prefix}_{task_id}")
+                                if st.button("📤 Submit for Review", key=f"sub_{tab_prefix}_{task_id}", use_container_width=True, type="primary"):
                                     current_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
-                                    updated_notes = f"[{user['name']} - {current_str}]: {user_msg}" if user_msg else f"[{user['name']} - {current_str}]: Submitted for review."
-                                    if review_notes:
-                                        updated_notes = f"{review_notes} | {updated_notes}"
+                                    new_entry = f"<b>{user['name']}</b> ({current_str}): {user_msg}" if user_msg else f"<b>{user['name']}</b> ({current_str}): Submitted for review."
+                                    updated_notes = f"{review_notes} | {new_entry}" if review_notes else new_entry
                                     
-                                    update_task_fields(row['Task ID'], {
+                                    update_task_fields(task_id, {
                                         "Status": "Under Review",
                                         "Review Notes": updated_notes,
                                         "Submitted At": current_str
                                     })
                                     fetch_data.clear()
-                                    st.toast("Submitted for review!", icon="📤")
+                                    st.toast("Submitted for review with remark!", icon="📤")
                                     st.rerun()
                         elif status == "Under Review" and (row['Assigned By'] == user['name'] or user['role'] in ['CEO', 'GM']):
                             st.write("")
-                            manager_reply = st.text_input("Manager Feedback / Reply Note", key=f"reply_{tab_prefix}_{row['Task ID']}")
+                            manager_reply = st.text_input("Manager Feedback / Reply Note", key=f"reply_{tab_prefix}_{task_id}")
                             b1, b2 = st.columns(2)
                             with b1:
-                                if st.button("✅ Approve & Complete", key=f"app_{tab_prefix}_{row['Task ID']}", use_container_width=True, type="primary"):
+                                if st.button("✅ Approve & Complete", key=f"app_{tab_prefix}_{task_id}", use_container_width=True, type="primary"):
                                     current_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
-                                    updated_notes = f"{review_notes} | [Manager Approved - {current_str}]: {manager_reply}" if manager_reply else review_notes
-                                    update_task_fields(row['Task ID'], {
+                                    reply_entry = f"<b>Manager Approved ({user['name']} - {current_str})</b>: {manager_reply}" if manager_reply else f"<b>Manager Approved ({user['name']} - {current_str})</b>"
+                                    updated_notes = f"{review_notes} | {reply_entry}" if review_notes else reply_entry
+                                    
+                                    update_task_fields(task_id, {
                                         "Status": "Completed",
                                         "Review Notes": updated_notes
                                     })
@@ -370,10 +384,12 @@ else:
                                     st.toast("Task approved and completed!", icon="✅")
                                     st.rerun()
                             with b2:
-                                if st.button("↩️ Send Back", key=f"ret_{tab_prefix}_{row['Task ID']}", use_container_width=True):
+                                if st.button("↩️ Send Back", key=f"ret_{tab_prefix}_{task_id}", use_container_width=True):
                                     current_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
-                                    updated_notes = f"{review_notes} | [Sent Back by {user['name']} - {current_str}]: {manager_reply}" if manager_reply else f"{review_notes} | [Sent Back - {current_str}]"
-                                    update_task_fields(row['Task ID'], {
+                                    reply_entry = f"<b>Sent Back by {user['name']} ({current_str})</b>: {manager_reply}" if manager_reply else f"<b>Sent Back by {user['name']} ({current_str})</b>"
+                                    updated_notes = f"{review_notes} | {reply_entry}" if review_notes else reply_entry
+                                    
+                                    update_task_fields(task_id, {
                                         "Status": "Assigned",
                                         "Review Notes": updated_notes
                                     })
@@ -383,11 +399,10 @@ else:
 
                         if view_clicked:
                             with st.spinner("Loading attachments..."):
-                                items = fetch_attachments_from_drive(row['Task ID'])
-                                if not items:
+                                if not attachments:
                                     st.warning("No files attached.")
                                 else:
-                                    for item in items:
+                                    for item in attachments:
                                         mime = item.get('mimeType', '')
                                         raw_bytes = base64.b64decode(item['b64']) if 'b64' in item else None
                                         
