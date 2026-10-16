@@ -10,11 +10,11 @@ from google.oauth2 import service_account
 # Mobile-first configuration
 st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
-# Constants (Keep your actual IDs, Token, and Web App URL here or in st.secrets)
-SHEET_ID = st.secrets.get("SHEET_ID", "PASTE_YOUR_SHEET_ID_HERE")
-FOLDER_ID = st.secrets.get("FOLDER_ID", "PASTE_YOUR_FOLDER_ID_HERE")
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "PASTE_YOUR_TELEGRAM_BOT_TOKEN_HERE")
-GAS_WEBAPP_URL = st.secrets.get("GAS_WEBAPP_URL", "PASTE_YOUR_GAS_WEBAPP_URL_HERE")
+# Constants
+SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
+FOLDER_ID = "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR"
+TELEGRAM_BOT_TOKEN = "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io"
+GAS_WEBAPP_URL = st.secrets.get("GAS_WEBAPP_URL", "https://script.google.com/macros/s/AKfycbwTAf2WeIGGNBlDdtRq4pjHYNf9_KxU-3Pji5Ejg8TkTesrHJUxyZSoFkTfhPQJ9GSx/exec")
 
 # Indian Standard Time (IST) helper so Streamlit Cloud (UTC) matches India time
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -55,6 +55,7 @@ def delete_task_from_sheet(task_id):
     cell = sheet.find(str(task_id), in_column=1)
     if cell:
         sheet.delete_rows(cell.row)
+    # Also delete attachments in Drive via Apps Script bridge
     if GAS_WEBAPP_URL.startswith("http"):
         try:
             requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=15)
@@ -64,10 +65,11 @@ def delete_task_from_sheet(task_id):
 def clear_all_completed_tasks():
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     records = sheet.get_all_records()
+    # Delete from bottom to top so row numbers don't shift
     for idx in range(len(records) - 1, -1, -1):
         if str(records[idx].get("Status", "")).strip() == "Completed":
             task_id = records[idx].get("Task ID")
-            sheet.delete_rows(idx + 2)
+            sheet.delete_rows(idx + 2)  # +2 accounts for header row and 0-indexing
             if task_id and GAS_WEBAPP_URL.startswith("http"):
                 try:
                     requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=10)
@@ -76,7 +78,7 @@ def clear_all_completed_tasks():
 
 def upload_bytes_to_drive(file_bytes, filename, mimetype):
     if not GAS_WEBAPP_URL.startswith("http"):
-        st.error("⚠️ Please configure your Google Apps Script Web App URL in GAS_WEBAPP_URL.")
+        st.error("⚠️ Please paste your Google Apps Script Web App URL into GAS_WEBAPP_URL first.")
         st.stop()
     payload = {
         "action": "upload",
@@ -112,6 +114,7 @@ def parse_deadline(deadline_str):
     if not deadline_str or pd.isna(deadline_str):
         return None
     s = str(deadline_str).strip()
+    # Supports both new DD/MM/YYYY format and older MM/DD/YYYY tasks already in your sheet
     for fmt in ["%d/%m/%Y, %I:%M:%S %p", "%d/%m/%Y, %I:%M %p", "%m/%d/%Y, %I:%M:%S %p", "%Y-%m-%d %H:%M:%S"]:
         try:
             return datetime.strptime(s, fmt)
@@ -193,6 +196,7 @@ else:
             
             users_df = fetch_data("User_list")
             
+            # Smart Dropdown for CEO/GM to prevent excessive scrolling
             if user['role'] in ['CEO', 'GM']:
                 departments = ["All"] + users_df['DEPARTMENT'].unique().tolist()
                 dept_filter = st.selectbox("Filter Department", departments, key=f"t_dept_{fk}")
@@ -249,7 +253,7 @@ else:
                             send_telegram_alert(telegram_id, title, user['name'], deadline_str, desc)
 
                         fetch_data.clear()
-                        st.session_state.form_key += 1  # Resets all form inputs & audio recorder cleanly
+                        st.session_state.form_key += 1
                     st.toast(f"✅ Assigned to {assignee}!", icon="🚀")
                     st.rerun()
                 else:
@@ -273,6 +277,7 @@ else:
     else:
         current_time = now_ist()
 
+        # Check overdue status across ALL tasks
         def check_is_overdue(row):
             if str(row.get('Status', '')).strip() == 'Completed':
                 return False
@@ -281,7 +286,7 @@ else:
 
         all_tasks_df['is_overdue'] = all_tasks_df.apply(check_is_overdue, axis=1)
 
-        # Overdue tasks are visible to EVERYONE
+        # Overdue tasks are visible to EVERYONE so the whole team stays accountable
         overdue_tasks = all_tasks_df[all_tasks_df['is_overdue'] == True]
 
         # Role-based filtering for Active, Review, and Done tabs
