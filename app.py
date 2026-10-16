@@ -10,6 +10,28 @@ from google.oauth2 import service_account
 # Mobile-first configuration
 st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
+# Inject Mobile-Friendly Custom Sidebar Toggle Button Styling
+st.markdown("""
+    <style>
+        /* Style Streamlit's default collapse button to be larger and thumb-friendly on mobile */
+        [data-testid="collapsedControl"] {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            background-color: #1E3A8A !important;
+            color: white !important;
+            border-radius: 0 8px 8px 0 !important;
+            padding: 8px 12px !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        [data-testid="collapsedControl"] svg {
+            width: 24px !important;
+            height: 24px !important;
+            fill: white !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # Constants
 SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
 FOLDER_ID = "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR"
@@ -55,7 +77,6 @@ def delete_task_from_sheet(task_id):
     cell = sheet.find(str(task_id), in_column=1)
     if cell:
         sheet.delete_rows(cell.row)
-    # Also delete attachments in Drive via Apps Script bridge
     if GAS_WEBAPP_URL.startswith("http"):
         try:
             requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=15)
@@ -65,11 +86,10 @@ def delete_task_from_sheet(task_id):
 def clear_all_completed_tasks():
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     records = sheet.get_all_records()
-    # Delete from bottom to top so row numbers don't shift
     for idx in range(len(records) - 1, -1, -1):
         if str(records[idx].get("Status", "")).strip() == "Completed":
             task_id = records[idx].get("Task ID")
-            sheet.delete_rows(idx + 2)  # +2 accounts for header row and 0-indexing
+            sheet.delete_rows(idx + 2)
             if task_id and GAS_WEBAPP_URL.startswith("http"):
                 try:
                     requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=10)
@@ -114,7 +134,6 @@ def parse_deadline(deadline_str):
     if not deadline_str or pd.isna(deadline_str):
         return None
     s = str(deadline_str).strip()
-    # Supports both new DD/MM/YYYY format and older MM/DD/YYYY tasks already in your sheet
     for fmt in ["%d/%m/%Y, %I:%M:%S %p", "%d/%m/%Y, %I:%M %p", "%m/%d/%Y, %I:%M:%S %p", "%Y-%m-%d %H:%M:%S"]:
         try:
             return datetime.strptime(s, fmt)
@@ -196,7 +215,6 @@ else:
             
             users_df = fetch_data("User_list")
             
-            # Smart Dropdown for CEO/GM to prevent excessive scrolling
             if user['role'] in ['CEO', 'GM']:
                 departments = ["All"] + users_df['DEPARTMENT'].unique().tolist()
                 dept_filter = st.selectbox("Filter Department", departments, key=f"t_dept_{fk}")
@@ -209,7 +227,6 @@ else:
             
             assignee = st.selectbox("Assign To", assignees, key=f"t_assignee_{fk}")
             
-            # Date & Time formatting in DD/MM/YYYY
             col_d, col_t = st.columns(2)
             with col_d:
                 deadline_d = st.date_input("Deadline Date", value=now_ist().date(), format="DD/MM/YYYY", key=f"t_date_{fk}")
@@ -217,8 +234,6 @@ else:
                 deadline_t = st.time_input("Time", value=now_ist().time().replace(second=0, microsecond=0), key=f"t_time_{fk}")
             
             uploaded_files = st.file_uploader("📎 Add Photos/Files", accept_multiple_files=True, key=f"t_files_{fk}")
-            
-            # Native Streamlit Audio Recorder with Live Waveform + Timer + Playback
             audio_recording = st.audio_input("🎙️ Record Voice Note", key=f"t_audio_{fk}")
             
             if st.button("Assign Task", use_container_width=True, type="primary"):
@@ -230,13 +245,11 @@ else:
                         created_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
                         deadline_str = f"{deadline_d.strftime('%d/%m/%Y')}, {deadline_t.strftime('%I:%M:%S %p')}"
                         
-                        # Upload standard files (Photos/PDFs)
                         if uploaded_files:
                             for idx, file in enumerate(uploaded_files):
                                 file_ext = file.name.split('.')[-1]
                                 upload_bytes_to_drive(file.getvalue(), f"{task_id}_{idx+1}.{file_ext}", file.type)
                         
-                        # Upload Voice Note
                         if audio_recording is not None:
                             upload_bytes_to_drive(audio_recording.getvalue(), f"{task_id}_VoiceNote.wav", "audio/wav")
                         
@@ -246,7 +259,6 @@ else:
                         ]
                         append_task(task_row)
                         
-                        # Telegram Alert
                         assignee_row = users_df[users_df['NAME'] == assignee]
                         telegram_id = assignee_row['TELEGRAM_ID'].values[0] if 'TELEGRAM_ID' in assignee_row.columns else None
                         if pd.notna(telegram_id) and str(telegram_id).strip() != "":
@@ -277,7 +289,6 @@ else:
     else:
         current_time = now_ist()
 
-        # Check overdue status across ALL tasks
         def check_is_overdue(row):
             if str(row.get('Status', '')).strip() == 'Completed':
                 return False
@@ -285,11 +296,8 @@ else:
             return (dt is not None) and (dt < current_time)
 
         all_tasks_df['is_overdue'] = all_tasks_df.apply(check_is_overdue, axis=1)
-
-        # Overdue tasks are visible to EVERYONE so the whole team stays accountable
         overdue_tasks = all_tasks_df[all_tasks_df['is_overdue'] == True]
 
-        # Role-based filtering for Active, Review, and Done tabs
         if user['role'] in ['CEO', 'GM']:
             role_tasks_df = all_tasks_df
         elif user['role'] == 'HOD':
@@ -342,7 +350,6 @@ else:
                             st.toast(f"Deleted {row['Task ID']}", icon="🗑️")
                             st.rerun()
 
-                # Status Workflow Actions
                 if status == "Assigned":
                     if user['name'] == row['Assigned To'] or can_manage:
                         if st.button("📤 Submit for Review", key=f"sub_{tab_prefix}_{row['Task ID']}", use_container_width=True):
