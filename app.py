@@ -48,7 +48,7 @@ st.markdown("""
 # Constants
 SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
 FOLDER_ID = "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR"
-TELEGRAM_BOT_TOKEN = "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io"
+TELEGRAM_BOT_TOKEN = "8644417421:AAEyHCjujQU30YP_wpbXFlitXH82M7dm4Ws"
 GAS_WEBAPP_URL = st.secrets.get("GAS_WEBAPP_URL", "https://script.google.com/macros/s/AKfycbwTAf2WeIGGNBlDdtRq4pjHYNf9_KxU-3Pji5Ejg8TkTesrHJUxyZSoFkTfhPQJ9GSx/exec")
 
 # Indian Standard Time (IST) helper
