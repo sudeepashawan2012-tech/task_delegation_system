@@ -263,7 +263,7 @@ else:
                 st.rerun()
 
     # --- MAIN SCREEN (Task Board) ---
-    st.header("Workspace")
+    st.header("Task Pro")
     all_tasks_df = fetch_data("Tasks")
 
     if all_tasks_df.empty:
