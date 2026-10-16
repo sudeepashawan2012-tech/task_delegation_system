@@ -1,7 +1,5 @@
-streamlit
+streamlit>=1.39.0
 gspread
 pandas
-google-api-python-client
 google-auth
 requests
-streamlit-mic-recorder
