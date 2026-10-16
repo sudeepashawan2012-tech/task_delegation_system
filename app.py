@@ -10,13 +10,11 @@ from google.oauth2 import service_account
 # Mobile-first configuration
 st.set_page_config(page_title="Task Portal", page_icon="📋", layout="centered", initial_sidebar_state="collapsed")
 
-# Constants
-SHEET_ID = "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk"
-FOLDER_ID = "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR"
-TELEGRAM_BOT_TOKEN = "8815285939:AAFN2XvB6MGep9_GBwjdF359B97wTp1y6io"
-
-# PASTE YOUR GOOGLE APPS SCRIPT WEB APP URL BELOW:
-GAS_WEBAPP_URL = st.secrets.get("GAS_WEBAPP_URL", "https://script.google.com/macros/s/AKfycbwTAf2WeIGGNBlDdtRq4pjHYNf9_KxU-3Pji5Ejg8TkTesrHJUxyZSoFkTfhPQJ9GSx/exec")
+# Constants (Keep your actual IDs, Token, and Web App URL here or in st.secrets)
+SHEET_ID = st.secrets.get("SHEET_ID", "PASTE_YOUR_SHEET_ID_HERE")
+FOLDER_ID = st.secrets.get("FOLDER_ID", "PASTE_YOUR_FOLDER_ID_HERE")
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "PASTE_YOUR_TELEGRAM_BOT_TOKEN_HERE")
+GAS_WEBAPP_URL = st.secrets.get("GAS_WEBAPP_URL", "PASTE_YOUR_GAS_WEBAPP_URL_HERE")
 
 # Indian Standard Time (IST) helper so Streamlit Cloud (UTC) matches India time
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -44,12 +42,19 @@ def append_task(task_data):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     sheet.append_row(task_data)
 
+def update_task_status(task_id, new_status):
+    sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
+    cell = sheet.find(str(task_id), in_column=1)
+    if cell:
+        headers = sheet.row_values(1)
+        status_col = headers.index("Status") + 1 if "Status" in headers else 9
+        sheet.update_cell(cell.row, status_col, new_status)
+
 def delete_task_from_sheet(task_id):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     cell = sheet.find(str(task_id), in_column=1)
     if cell:
         sheet.delete_rows(cell.row)
-    # Also delete attachments in Drive via Apps Script bridge
     if GAS_WEBAPP_URL.startswith("http"):
         try:
             requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=15)
@@ -59,11 +64,10 @@ def delete_task_from_sheet(task_id):
 def clear_all_completed_tasks():
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     records = sheet.get_all_records()
-    # Delete from bottom to top so row numbers don't shift
     for idx in range(len(records) - 1, -1, -1):
         if str(records[idx].get("Status", "")).strip() == "Completed":
             task_id = records[idx].get("Task ID")
-            sheet.delete_rows(idx + 2)  # +2 accounts for header row and 0-indexing
+            sheet.delete_rows(idx + 2)
             if task_id and GAS_WEBAPP_URL.startswith("http"):
                 try:
                     requests.post(GAS_WEBAPP_URL, json={"action": "delete", "taskId": task_id}, timeout=10)
@@ -72,7 +76,7 @@ def clear_all_completed_tasks():
 
 def upload_bytes_to_drive(file_bytes, filename, mimetype):
     if not GAS_WEBAPP_URL.startswith("http"):
-        st.error("⚠️ Please paste your Google Apps Script Web App URL into GAS_WEBAPP_URL first.")
+        st.error("⚠️ Please configure your Google Apps Script Web App URL in GAS_WEBAPP_URL.")
         st.stop()
     payload = {
         "action": "upload",
@@ -81,7 +85,12 @@ def upload_bytes_to_drive(file_bytes, filename, mimetype):
         "bytes": base64.b64encode(file_bytes).decode("utf-8")
     }
     resp = requests.post(GAS_WEBAPP_URL, json=payload, timeout=60)
-    res_json = resp.json()
+    try:
+        res_json = resp.json()
+    except Exception:
+        st.error("Drive Bridge Error: Make sure your Apps Script deployment has 'Who has access' set to 'Anyone'.")
+        st.stop()
+
     if res_json.get("status") != "success":
         st.error(f"Drive Upload Error: {res_json.get('message')}")
         st.stop()
@@ -90,17 +99,19 @@ def upload_bytes_to_drive(file_bytes, filename, mimetype):
 def fetch_attachments_from_drive(task_id):
     if not GAS_WEBAPP_URL.startswith("http"):
         return []
-    resp = requests.post(GAS_WEBAPP_URL, json={"action": "list", "taskId": task_id}, timeout=30)
-    res_json = resp.json()
-    if res_json.get("status") == "success":
-        return res_json.get("files", [])
+    try:
+        resp = requests.post(GAS_WEBAPP_URL, json={"action": "list", "taskId": task_id}, timeout=30)
+        res_json = resp.json()
+        if res_json.get("status") == "success":
+            return res_json.get("files", [])
+    except Exception:
+        pass
     return []
 
 def parse_deadline(deadline_str):
     if not deadline_str or pd.isna(deadline_str):
         return None
     s = str(deadline_str).strip()
-    # Supports both new DD/MM/YYYY format and older MM/DD/YYYY tasks already in your sheet
     for fmt in ["%d/%m/%Y, %I:%M:%S %p", "%d/%m/%Y, %I:%M %p", "%m/%d/%Y, %I:%M:%S %p", "%Y-%m-%d %H:%M:%S"]:
         try:
             return datetime.strptime(s, fmt)
@@ -128,6 +139,8 @@ def send_telegram_alert(chat_id, task_title, assigned_by, deadline, description)
 # State Management
 if 'user' not in st.session_state:
     st.session_state.user = None
+if 'form_key' not in st.session_state:
+    st.session_state.form_key = 0
 
 # ==========================================
 # LOGIN SCREEN
@@ -160,6 +173,7 @@ if st.session_state.user is None:
 # ==========================================
 else:
     user = st.session_state.user
+    fk = st.session_state.form_key
 
     with st.sidebar:
         st.markdown(f"### 👤 {user['name']}")
@@ -174,15 +188,14 @@ else:
         if user['role'] in ['CEO', 'GM', 'HOD']:
             st.markdown("### ➕ Assign New Task")
             
-            title = st.text_input("Task Title", key="t_title")
-            desc = st.text_area("Details", key="t_desc", height=80)
+            title = st.text_input("Task Title", key=f"t_title_{fk}")
+            desc = st.text_area("Details", key=f"t_desc_{fk}", height=80)
             
             users_df = fetch_data("User_list")
             
-            # Smart Dropdown for CEO/GM to prevent excessive scrolling
             if user['role'] in ['CEO', 'GM']:
                 departments = ["All"] + users_df['DEPARTMENT'].unique().tolist()
-                dept_filter = st.selectbox("Filter Department", departments)
+                dept_filter = st.selectbox("Filter Department", departments, key=f"t_dept_{fk}")
                 if dept_filter == "All":
                     assignees = users_df['NAME'].tolist()
                 else:
@@ -190,19 +203,19 @@ else:
             else:
                 assignees = users_df[users_df['DEPARTMENT'] == user['dept']]['NAME'].tolist()
             
-            assignee = st.selectbox("Assign To", assignees, key="t_assignee")
+            assignee = st.selectbox("Assign To", assignees, key=f"t_assignee_{fk}")
             
             # Date & Time formatting in DD/MM/YYYY
             col_d, col_t = st.columns(2)
             with col_d:
-                deadline_d = st.date_input("Deadline Date", value=now_ist().date(), format="DD/MM/YYYY")
+                deadline_d = st.date_input("Deadline Date", value=now_ist().date(), format="DD/MM/YYYY", key=f"t_date_{fk}")
             with col_t:
-                deadline_t = st.time_input("Time", value=now_ist().time().replace(second=0, microsecond=0))
+                deadline_t = st.time_input("Time", value=now_ist().time().replace(second=0, microsecond=0), key=f"t_time_{fk}")
             
-            uploaded_files = st.file_uploader("📎 Add Photos/Files", accept_multiple_files=True)
+            uploaded_files = st.file_uploader("📎 Add Photos/Files", accept_multiple_files=True, key=f"t_files_{fk}")
             
             # Native Streamlit Audio Recorder with Live Waveform + Timer + Playback
-            audio_recording = st.audio_input("🎙️ Record Voice Note")
+            audio_recording = st.audio_input("🎙️ Record Voice Note", key=f"t_audio_{fk}")
             
             if st.button("Assign Task", use_container_width=True, type="primary"):
                 if title and assignee:
@@ -236,6 +249,7 @@ else:
                             send_telegram_alert(telegram_id, title, user['name'], deadline_str, desc)
 
                         fetch_data.clear()
+                        st.session_state.form_key += 1  # Resets all form inputs & audio recorder cleanly
                     st.toast(f"✅ Assigned to {assignee}!", icon="🚀")
                     st.rerun()
                 else:
@@ -259,7 +273,6 @@ else:
     else:
         current_time = now_ist()
 
-        # Check overdue status across ALL tasks
         def check_is_overdue(row):
             if str(row.get('Status', '')).strip() == 'Completed':
                 return False
@@ -268,7 +281,7 @@ else:
 
         all_tasks_df['is_overdue'] = all_tasks_df.apply(check_is_overdue, axis=1)
 
-        # Overdue tasks are visible to EVERYONE so the whole team stays accountable
+        # Overdue tasks are visible to EVERYONE
         overdue_tasks = all_tasks_df[all_tasks_df['is_overdue'] == True]
 
         # Role-based filtering for Active, Review, and Done tabs
@@ -289,12 +302,13 @@ else:
 
         def render_task_card(row, tab_prefix):
             is_overdue = row.get('is_overdue', False)
+            status = str(row.get('Status', '')).strip()
             deadline_color = "#DC2626" if is_overdue else "#D97706"
             overdue_badge = " <span style='background-color:#FEE2E2; color:#DC2626; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;'>🚨 OVERDUE</span>" if is_overdue else ""
 
             with st.container(border=True):
-                can_delete = user['role'] in ['CEO', 'GM', 'HOD']
-                if can_delete:
+                can_manage = user['role'] in ['CEO', 'GM', 'HOD']
+                if can_manage:
                     c1, c2, c3 = st.columns([0.76, 0.12, 0.12])
                 else:
                     c1, c2 = st.columns([0.85, 0.15])
@@ -313,7 +327,7 @@ else:
                 with c2:
                     view_btn = st.button("📎", key=f"att_{tab_prefix}_{row['Task ID']}", help="View / Play Attachments")
 
-                if can_delete and c3 is not None:
+                if can_manage and c3 is not None:
                     with c3:
                         del_btn = st.button("🗑️", key=f"del_{tab_prefix}_{row['Task ID']}", help="Delete Task")
                         if del_btn:
@@ -321,6 +335,26 @@ else:
                                 delete_task_from_sheet(row['Task ID'])
                                 fetch_data.clear()
                             st.toast(f"Deleted {row['Task ID']}", icon="🗑️")
+                            st.rerun()
+
+                # Status Workflow Actions
+                if status == "Assigned":
+                    if user['name'] == row['Assigned To'] or can_manage:
+                        if st.button("📤 Submit for Review", key=f"sub_{tab_prefix}_{row['Task ID']}", use_container_width=True):
+                            update_task_status(row['Task ID'], "Under Review")
+                            fetch_data.clear()
+                            st.rerun()
+                elif status == "Under Review" and can_manage:
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        if st.button("✅ Approve & Complete", key=f"app_{tab_prefix}_{row['Task ID']}", use_container_width=True, type="primary"):
+                            update_task_status(row['Task ID'], "Completed")
+                            fetch_data.clear()
+                            st.rerun()
+                    with b2:
+                        if st.button("↩️ Send Back", key=f"ret_{tab_prefix}_{row['Task ID']}", use_container_width=True):
+                            update_task_status(row['Task ID'], "Assigned")
+                            fetch_data.clear()
                             st.rerun()
 
                 if view_btn:
