@@ -700,16 +700,16 @@ else:
                             )
                             st.markdown(card_html, unsafe_allow_html=True)
 
-                        # Blue Paperclip Button
+                       # Blue Attach File Button
                         with c2:
                             toggle_key = f"{tab_prefix}_{task_id}"
-                            if st.button("📎", key=f"att_{toggle_key}", help="Open Assigner's Files & Voice Notes", use_container_width=True):
+                            if st.button(" ", icon=":material/attach_file:", key=f"att_{toggle_key}", help="Open Assigner's Files & Voice Notes", use_container_width=True):
                                 st.session_state.open_attachments[toggle_key] = not st.session_state.open_attachments.get(toggle_key, False)
 
                         # Red Recycle Bin Delete Button
                         if can_delete and c3 is not None:
                             with c3:
-                                if st.button("🗑️", key=f"del_{tab_prefix}_{task_id}", help="Delete Task Permanently", use_container_width=True):
+                                if st.button(" ", icon=":material/delete:", key=f"del_{tab_prefix}_{task_id}", help="Delete Task Permanently", use_container_width=True):
                                     with st.spinner("Deleting task..."):
                                         delete_task_from_sheet(task_id)
                                         fetch_data.clear()
