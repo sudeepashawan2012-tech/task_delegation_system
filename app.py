@@ -33,8 +33,8 @@ st.markdown("""
             max-width: 720px !important;
         }
 
-        /* Make all text sharper, darker, and thicker for mobile readability */
-        body, p, div, span, label {
+        /* Make standard text sharper, but DO NOT target 'span' or 'div' directly to protect Streamlit's built-in icons */
+        body, p, label, h1, h2, h3 {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
             color: #111827;
         }
