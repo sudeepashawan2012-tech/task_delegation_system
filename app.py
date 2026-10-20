@@ -513,7 +513,7 @@ else:
         st.divider()
         st.markdown(
             f"<div style='margin-bottom:6px; font-weight:800; color:#1E3A8A;'>"
-            f"<img src='{ICON_TRASH}' style='width:18px; vertical-align:middle; margin-right:6px;'/>"
+            f"<img src=\"{ICON_TRASH}\" style='width:18px; vertical-align:middle; margin-right:6px;'/>"
             f"Maintenance</div>",
             unsafe_allow_html=True
         )
@@ -655,7 +655,7 @@ else:
                     if att_summary:
                         att_indicator_html = (
                             f"<div class='att-pill'>"
-                            f"<img src='{ICON_PAPERCLIP}' style='width:15px; vertical-align:middle; margin-right:5px;'/>"
+                            f"<img src=\"{ICON_PAPERCLIP}\" style='width:15px; vertical-align:middle; margin-right:5px;'/>"
                             f"Sent by {html.escape(assigned_by)}: {html.escape(att_summary)} (Tap 📎 to open)</div>"
                         )
 
@@ -704,7 +704,7 @@ else:
                         with c2:
                             st.markdown(
                                 f"<div style='text-align:center; margin-bottom:2px;'>"
-                                f"<img src='{ICON_PAPERCLIP}' style='width:18px;'/></div>",
+                                f"<img src=\"{ICON_PAPERCLIP}\" style='width:18px;'/></div>",
                                 unsafe_allow_html=True
                             )
                             toggle_key = f"{tab_prefix}_{task_id}"
@@ -716,7 +716,7 @@ else:
                             with c3:
                                 st.markdown(
                                     f"<div style='text-align:center; margin-bottom:2px;'>"
-                                    f"<img src='{ICON_TRASH}' style='width:18px;'/></div>",
+                                    f"<img src=\"{ICON_TRASH}\" style='width:18px;'/></div>",
                                     unsafe_allow_html=True
                                 )
                                 if st.button("🗑️", key=f"del_{tab_prefix}_{task_id}", help="Delete Task Permanently", use_container_width=True):
@@ -902,7 +902,7 @@ else:
 
             st.markdown(
                 f"<div style='margin-top:8px; font-weight:700; color:#1E3A8A;'>"
-                f"<img src='{ICON_PAPERCLIP}' style='width:18px; vertical-align:middle; margin-right:6px;'/>"
+                f"<img src=\"{ICON_PAPERCLIP}\" style='width:18px; vertical-align:middle; margin-right:6px;'/>"
                 f"Attach Photos / Documents</div>",
                 unsafe_allow_html=True
             )
