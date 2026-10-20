@@ -702,11 +702,6 @@ else:
 
                         # Blue Paperclip Button
                         with c2:
-                            st.markdown(
-                                f"<div style='text-align:center; margin-bottom:2px;'>"
-                                f"<img src=\"{ICON_PAPERCLIP}\" style='width:18px;'/></div>",
-                                unsafe_allow_html=True
-                            )
                             toggle_key = f"{tab_prefix}_{task_id}"
                             if st.button("📎", key=f"att_{toggle_key}", help="Open Assigner's Files & Voice Notes", use_container_width=True):
                                 st.session_state.open_attachments[toggle_key] = not st.session_state.open_attachments.get(toggle_key, False)
@@ -714,11 +709,6 @@ else:
                         # Red Recycle Bin Delete Button
                         if can_delete and c3 is not None:
                             with c3:
-                                st.markdown(
-                                    f"<div style='text-align:center; margin-bottom:2px;'>"
-                                    f"<img src=\"{ICON_TRASH}\" style='width:18px;'/></div>",
-                                    unsafe_allow_html=True
-                                )
                                 if st.button("🗑️", key=f"del_{tab_prefix}_{task_id}", help="Delete Task Permanently", use_container_width=True):
                                     with st.spinner("Deleting task..."):
                                         delete_task_from_sheet(task_id)
