@@ -210,7 +210,7 @@ st.markdown("""
 # ==========================================
 SHEET_ID = st.secrets.get("SHEET_ID", "1oKei6r42q5zH4g-014bNEZfMRkzdm-MoOUwU5GUbsZk")
 FOLDER_ID = st.secrets.get("FOLDER_ID", "1-p5zcpZa8vXtpPLMx7y4JoMsGEOYSEaR")
-TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"])
+TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
 GAS_WEBAPP_URL = st.secrets.get(
     "GAS_WEBAPP_URL",
     "https://script.google.com/macros/s/AKfycbwTAf2WeIGGNBlDdtRq4pjHYNf9_KxU-3Pji5Ejg8TkTesrHJUxyZSoFkTfhPQJ9GSx/exec"
