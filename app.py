@@ -24,13 +24,13 @@ ICON_TRASH = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' vi
 
 st.markdown("""
     <style>
-        /* Remove wasted top/side blank space on mobile phones */
+        /* Safe top padding (3.4rem) so Streamlit's top navbar NEVER cuts off Refresh & Logout buttons! */
         .block-container {
-            padding-top: 0.8rem !important;
+            padding-top: 3.4rem !important;
             padding-bottom: 3.5rem !important;
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-            max-width: 720px !important;
+            padding-left: 0.55rem !important;
+            padding-right: 0.55rem !important;
+            max-width: 740px !important;
         }
 
         /* Make standard text sharp without breaking Streamlit's built-in material icons */
@@ -54,7 +54,7 @@ st.markdown("""
             flex: 1 1 0% !important;
         }
 
-        /* Prominent Top-Level & Sub-Level Tabs - Fitted so 4-5 tabs never cut off on mobile */
+        /* Prominent Top-Level & Sub-Level Tabs - Scrollable & fitted so tabs never cut off on mobile */
         div[data-baseweb="tab-list"] {
             gap: 4px !important;
             background-color: #F1F5F9;
@@ -68,7 +68,7 @@ st.markdown("""
             display: none;
         }
         button[data-baseweb="tab"] {
-            font-size: 13px !important;
+            font-size: 12.5px !important;
             font-weight: 700 !important;
             padding: 7px 9px !important;
             border-radius: 7px !important;
@@ -84,7 +84,7 @@ st.markdown("""
         button[data-baseweb="tab"][aria-selected="true"] p {
             color: #FFFFFF !important;
             font-weight: 800 !important;
-            font-size: 13px !important;
+            font-size: 12.5px !important;
         }
 
         /* High-visibility input boxes */
@@ -92,6 +92,21 @@ st.markdown("""
             font-size: 15px !important;
             font-weight: 500 !important;
             border-radius: 8px !important;
+        }
+
+        /* Horizontal Radio Buttons as Clean Pill Buttons (Used for Deadline Presets & View Switchers) */
+        div[role="radiogroup"] {
+            gap: 6px !important;
+            flex-wrap: wrap !important;
+        }
+        div[role="radiogroup"] label {
+            background-color: #F1F5F9 !important;
+            border: 1.5px solid #CBD5E1 !important;
+            border-radius: 8px !important;
+            padding: 5px 10px !important;
+            font-weight: 700 !important;
+            font-size: 13px !important;
+            margin-right: 2px !important;
         }
 
         /* Enlarge Voice Note Recorder on Mobile */
@@ -107,11 +122,25 @@ st.markdown("""
             border-radius: 8px !important;
             font-weight: 700 !important;
             font-size: 13px !important;
-            min-height: 36px !important;
-            padding: 4px 8px !important;
+            min-height: 38px !important;
+            padding: 5px 10px !important;
             line-height: 1.2 !important;
             box-shadow: 0 1px 2px rgba(0,0,0,0.10) !important;
             white-space: nowrap !important;
+        }
+
+        /* Top Bar Refresh & Logout Buttons - Extra Clear & Prominent */
+        div[class*="st-key-top_refresh"] button {
+            background-color: #EFF6FF !important;
+            color: #1E3A8A !important;
+            border: 1.5px solid #93C5FD !important;
+            font-weight: 800 !important;
+        }
+        div[class*="st-key-top_logout"] button {
+            background-color: #FEF2F2 !important;
+            color: #DC2626 !important;
+            border: 1.5px solid #FCA5A5 !important;
+            font-weight: 800 !important;
         }
 
         /* Blue Paperclip Attachment Button */
@@ -298,6 +327,14 @@ st.markdown("""
             text-align: center;
             white-space: nowrap;
         }
+        .dept-summary-card {
+            background: #F8FAFC;
+            border: 1px solid #CBD5E1;
+            border-left: 4px solid #1E3A8A;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -341,7 +378,22 @@ REQUIRED_TASK_HEADERS = [
     "Acknowledged", "Last Reminded"
 ]
 
-@st.cache_data(ttl=25)
+def ensure_sheet_headers():
+    sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
+    current_headers = [str(h).strip() for h in sheet.row_values(1)]
+    if not current_headers:
+        sheet.append_row(REQUIRED_TASK_HEADERS)
+        return REQUIRED_TASK_HEADERS
+    updated = False
+    for col in REQUIRED_TASK_HEADERS:
+        if col not in current_headers:
+            current_headers.append(col)
+            updated = True
+    if updated:
+        sheet.update("A1", [current_headers])
+    return current_headers
+
+@st.cache_data(ttl=15)
 def fetch_data(sheet_name):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet(sheet_name)
     all_values = sheet.get_all_values()
@@ -387,21 +439,6 @@ def fetch_data(sheet_name):
 
     return df
 
-def ensure_sheet_headers():
-    sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
-    current_headers = [str(h).strip() for h in sheet.row_values(1)]
-    if not current_headers:
-        sheet.append_row(REQUIRED_TASK_HEADERS)
-        return REQUIRED_TASK_HEADERS
-    updated = False
-    for col in REQUIRED_TASK_HEADERS:
-        if col not in current_headers:
-            current_headers.append(col)
-            updated = True
-    if updated:
-        sheet.update("A1", [current_headers])
-    return current_headers
-
 def append_task(task_dict):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
     headers = ensure_sheet_headers()
@@ -418,6 +455,8 @@ def update_task_fields(task_id, updates_dict):
             if col_name in headers:
                 col_idx = headers.index(col_name) + 1
                 sheet.update_cell(row_idx, col_idx, str(val))
+        return True
+    return False
 
 def delete_task_from_sheet(task_id):
     sheet = gs_client.open_by_key(SHEET_ID).worksheet("Tasks")
@@ -486,6 +525,8 @@ def parse_dt(dt_str):
     if not dt_str or pd.isna(dt_str):
         return None
     s = str(dt_str).strip()
+    if s.startswith("Once on "):
+        s = s.replace("Once on ", "").strip()
     for fmt in [
         "%d/%m/%Y, %I:%M:%S %p",
         "%d/%m/%Y, %I:%M %p",
@@ -499,7 +540,7 @@ def parse_dt(dt_str):
     return None
 
 # ==========================================
-# 4. TELEGRAM NOTIFICATION + SEEN ACKNOWLEDGMENT
+# 4. TELEGRAM NOTIFICATION + DIRECT SEEN SYNC
 # ==========================================
 def send_telegram_alert(
     chat_id,
@@ -519,7 +560,6 @@ def send_telegram_alert(
     if attachment_summary:
         details_text = f"{details_text}\n📎 Attachments from {assigned_by}: {attachment_summary}"
 
-    # Exact template structure requested by user + Inline Acknowledge Button
     message = (
         f"🚨Title: {task_title}\n"
         f"🏢 From: {assigned_by}\n"
@@ -527,7 +567,7 @@ def send_telegram_alert(
         f"📌 Priority: {priority}\n"
         f"📅 Deadline: {deadline}\n\n"
         f"📝 Details:\n{details_text}\n\n"
-        f"👇 Please tap below to confirm you have seen this task:"
+        f"👇 Tap below to confirm you have seen this task:"
     )
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -549,15 +589,24 @@ def send_telegram_alert(
 
 def sync_telegram_acknowledgments():
     """
-    Fallback polling sync if Telegram webhook is not set yet.
-    If webhook IS set to GAS_WEBAPP_URL, Code.gs processes 'ack|...' callbacks in real time
-    and getUpdates safely returns without doing anything.
+    Directly polls Telegram Bot API for '👁️ Acknowledge / Seen' button clicks
+    and updates the Google Sheet using Streamlit's already-authenticated service account!
+    If an un-deployed webhook was blocking getUpdates (HTTP 409), it automatically clears
+    the webhook so Telegram button clicks ALWAYS work without needing a new GAS URL.
     """
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
-        resp = requests.get(url, params={"timeout": 1, "allowed_updates": '["callback_query"]'}, timeout=4)
+        base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+        resp = requests.get(f"{base_url}/getUpdates", params={"timeout": 1}, timeout=5)
+
+        # If a webhook was set to an old/un-updated GAS deployment, Telegram returns 409 Conflict.
+        # Deleting the webhook allows Streamlit to process Telegram 'Seen' clicks directly!
+        if resp.status_code == 409:
+            requests.post(f"{base_url}/deleteWebhook", timeout=4)
+            resp = requests.get(f"{base_url}/getUpdates", params={"timeout": 1}, timeout=5)
+
         if resp.status_code != 200:
             return False
+
         data = resp.json()
         if not data.get("ok") or not data.get("result"):
             return False
@@ -577,23 +626,31 @@ def sync_telegram_acknowledgments():
                     who = parts[2].strip() if len(parts) > 2 else "Assignee"
                     ack_time = now_ist().strftime("%d/%m/%Y, %I:%M %p")
                     ack_val = f"Seen by {who} at {ack_time}"
+
                     update_task_fields(t_id, {"Acknowledged": ack_val})
                     updated_any = True
 
-                    # Answer callback & update Telegram message button
+                    # 1. Popup toast inside user's Telegram app
                     cb_id = cb.get("id")
                     requests.post(
-                        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
-                        json={"callback_query_id": cb_id, "text": f"✅ Acknowledged at {ack_time}!"},
+                        f"{base_url}/answerCallbackQuery",
+                        json={"callback_query_id": cb_id, "text": f"✅ Marked as Seen ({ack_time})!"},
                         timeout=4
                     )
+
+                    # 2. Edit the Telegram message so the button turns into permanent '✅ Seen' text
                     msg_obj = cb.get("message", {})
                     chat_id = msg_obj.get("chat", {}).get("id")
                     msg_id = msg_obj.get("message_id")
-                    orig_text = msg_obj.get("text", "").replace("👇 Please tap below to confirm you have seen this task:", "").strip()
+                    orig_text = (
+                        msg_obj.get("text", "")
+                        .replace("👇 Please tap below to confirm you have seen this task:", "")
+                        .replace("👇 Tap below to confirm you have seen this task:", "")
+                        .strip()
+                    )
                     if chat_id and msg_id:
                         requests.post(
-                            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText",
+                            f"{base_url}/editMessageText",
                             json={
                                 "chat_id": chat_id,
                                 "message_id": msg_id,
@@ -603,45 +660,105 @@ def sync_telegram_acknowledgments():
                         )
 
         if last_update_id is not None:
-            requests.get(url, params={"offset": last_update_id + 1}, timeout=3)
+            requests.get(f"{base_url}/getUpdates", params={"offset": last_update_id + 1}, timeout=4)
         return updated_any
     except Exception:
         return False
 
-def setup_automation_bridge():
-    """Registers Telegram Webhook to GAS_WEBAPP_URL and activates 15-min Recurring Reminder Trigger in Apps Script."""
-    results = []
-    if GAS_WEBAPP_URL.startswith("http"):
-        # 1. Register Telegram Webhook so '👁️ Acknowledge / Seen' works 24/7 instantly
-        try:
-            wh_resp = requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
-                json={"url": GAS_WEBAPP_URL},
-                timeout=10
-            ).json()
-            if wh_resp.get("ok"):
-                results.append("✅ Telegram 'Seen' Webhook connected")
-        except Exception as e:
-            results.append(f"⚠️ Webhook error: {e}")
+def check_and_fire_due_reminders():
+    """
+    Checks due Reminders directly from Python (using already-authenticated gspread)
+    so recurring reminders fire automatically whenever the portal is used, even if
+    Apps Script triggers haven't been authorized yet! (Shares 'Last Reminded' lock with Code.gs
+    so reminders are NEVER sent twice.)
+    """
+    try:
+        df = fetch_data("Tasks")
+        if df.empty or "ItemType" not in df.columns:
+            return False
+        rem_df = df[df["ItemType"].astype(str).str.strip() == "Reminder"]
+        if rem_df.empty:
+            return False
 
-        # 2. Ask GAS Bridge to install the 15-minute Time-Driven Cron Trigger & store Bot Token
-        try:
-            gas_resp = requests.post(
-                GAS_WEBAPP_URL,
-                json={
-                    "action": "setup_automation",
-                    "botToken": TELEGRAM_BOT_TOKEN,
-                    "sheetId": SHEET_ID
-                },
-                timeout=20
-            ).json()
-            if gas_resp.get("status") == "success":
-                results.append("✅ 24/7 Auto-Reminders Cron Trigger activated")
-            else:
-                results.append(f"⚠️ GAS Trigger note: {gas_resp.get('message', 'Update Code.gs deployment')}")
-        except Exception:
-            results.append("ℹ️ Make sure latest Code.gs is deployed as Web App")
-    return " | ".join(results)
+        now = now_ist()
+        today_str = now.strftime("%d/%m/%Y")
+        current_day_name = now.strftime("%A")
+        current_day_num = now.day
+        current_mins = now.hour * 60 + now.minute
+
+        users_df = fetch_data("User_list")
+        tg_map = {}
+        if not users_df.empty and "NAME" in users_df.columns and "TELEGRAM_ID" in users_df.columns:
+            for _, urow in users_df.iterrows():
+                uname = str(urow["NAME"]).strip().upper()
+                utg = str(urow["TELEGRAM_ID"]).strip()
+                if uname and utg and utg.lower() != "nan":
+                    tg_map[uname] = utg
+
+        fired_any = False
+        for _, row in rem_df.iterrows():
+            last_rem = str(row.get("Last Reminded", "")).strip()
+            if last_rem == today_str:
+                continue
+
+            spec = str(row.get("Deadline", "")).strip()
+            if not spec:
+                continue
+
+            # Parse scheduled time in spec
+            scheduled_mins = 10 * 60
+            import re
+            m_time = re.search(r"(\d{1,2}):(\d{2})\s*(AM|PM)", spec, re.IGNORECASE)
+            if m_time:
+                hr = int(m_time.group(1))
+                mn = int(m_time.group(2))
+                ampm = m_time.group(3).upper()
+                if ampm == "PM" and hr < 12:
+                    hr += 12
+                if ampm == "AM" and hr == 12:
+                    hr = 0
+                scheduled_mins = hr * 60 + mn
+
+            if current_mins < scheduled_mins:
+                continue
+
+            is_due = False
+            if spec.startswith("Daily"):
+                is_due = True
+            elif spec.startswith("Every "):
+                if current_day_name.lower() in spec.lower():
+                    is_due = True
+            elif spec.startswith("Monthly on Day "):
+                m_day = re.search(r"Day\s+(\d+)", spec, re.IGNORECASE)
+                if m_day and int(m_day.group(1)) == current_day_num:
+                    is_due = True
+            elif spec.startswith("Once on "):
+                if today_str in spec:
+                    is_due = True
+
+            if is_due:
+                t_id = str(row.get("Task ID", "")).strip()
+                title = str(row.get("Title", "")).strip()
+                desc = str(row.get("Description", "Scheduled Reminder")).strip()
+                by_user = str(row.get("Assigned By", "")).strip()
+                dept = str(row.get("Assigned Dept", "General")).strip()
+                to_user = str(row.get("Assigned To", "")).strip().upper()
+                prio = str(row.get("Priority", "🟢 Regular")).strip()
+
+                chat_id = tg_map.get(to_user)
+                if chat_id:
+                    send_telegram_alert(chat_id, t_id, title, by_user, spec, desc, prio, to_user, dept)
+
+                update_task_fields(t_id, {
+                    "Status": "Assigned",
+                    "Acknowledged": "",
+                    "Last Reminded": today_str
+                })
+                fired_any = True
+
+        return fired_any
+    except Exception:
+        return False
 
 # ==========================================
 # 5. SESSION STATE MANAGEMENT
@@ -652,6 +769,8 @@ if "form_key" not in st.session_state:
     st.session_state.form_key = 0
 if "open_attachments" not in st.session_state:
     st.session_state.open_attachments = {}
+if "flash_msg" not in st.session_state:
+    st.session_state.flash_msg = None
 
 # ==========================================
 # 6. LOGIN SCREEN
@@ -695,30 +814,38 @@ else:
     user = st.session_state.user
     fk = st.session_state.form_key
 
-    # Sync any pending Telegram "Acknowledge / Seen" clicks
+    # Sync any Telegram "👁️ Acknowledge / Seen" button clicks & check due reminders
     if sync_telegram_acknowledgments():
         fetch_data.clear()
+    if check_and_fire_due_reminders():
+        fetch_data.clear()
 
-    # Compact Mobile Top User Bar (Stays on 1 row on mobile)
-    top_c1, top_c2, top_c3 = st.columns([0.54, 0.23, 0.23])
+    # Display any flash confirmation message after instant rerun
+    if st.session_state.flash_msg:
+        st.success(st.session_state.flash_msg)
+        st.session_state.flash_msg = None
+
+    # Compact Mobile Top User Bar (With 3.4rem top padding so buttons are 100% visible!)
+    top_c1, top_c2, top_c3 = st.columns([0.52, 0.24, 0.24])
     with top_c1:
         st.markdown(
-            f"<div style='font-size:15px; font-weight:800; color:#1E3A8A; line-height:1.2;'>👤 {user['name']}<br>"
+            f"<div style='font-size:15px; font-weight:800; color:#1E3A8A; line-height:1.25;'>👤 {user['name']}<br>"
             f"<span style='font-size:11.5px; font-weight:600; color:#475569;'>{user['role']} | {user['dept']}</span></div>",
             unsafe_allow_html=True
         )
     with top_c2:
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh", key="top_refresh", use_container_width=True):
             sync_telegram_acknowledgments()
             fetch_data.clear()
             fetch_attachments_from_drive.clear()
+            st.toast("Synced latest Telegram & Sheet updates!", icon="🔄")
             st.rerun()
     with top_c3:
         if st.button("🚪 Logout", key="top_logout", use_container_width=True):
             st.session_state.user = None
             st.rerun()
 
-    # Sidebar for Bulk Maintenance & 1-Click Automation Setup
+    # Sidebar for Bulk Maintenance
     with st.sidebar:
         st.markdown(f"### 👤 {user['name']}")
         st.caption(f"**{user['role']}** | {user['dept']}")
@@ -726,7 +853,7 @@ else:
         st.markdown(
             f"<div style='margin-bottom:6px; font-weight:800; color:#1E3A8A;'>"
             f"<img src=\"{ICON_TRASH}\" style='width:18px; vertical-align:middle; margin-right:6px;'/>"
-            f"Maintenance & Automation</div>",
+            f"Maintenance</div>",
             unsafe_allow_html=True
         )
         if st.button("🗑️ Clear Completed Tasks", use_container_width=True):
@@ -736,12 +863,6 @@ else:
             st.toast("Completed tasks cleared!", icon="🧹")
             st.rerun()
 
-        st.write("")
-        if st.button("⚡ Activate Telegram 'Seen' & Auto-Reminders", use_container_width=True):
-            with st.spinner("Connecting Telegram Webhook & 24/7 Reminder Cron..."):
-                msg = setup_automation_bridge()
-            st.success(msg)
-
     # --- TOP-LEVEL NAVIGATION TABS ---
     main_tab1, main_tab2, main_tab3 = st.tabs([
         "📋 Task Pro",
@@ -750,7 +871,7 @@ else:
     ])
 
     # ==========================================
-    # TAB 1: TASK PRO (WORKSPACE)
+    # TAB 1: TASK PRO (WORKSPACE & DEPT SUMMARY)
     # ==========================================
     with main_tab1:
         all_df = fetch_data("Tasks")
@@ -796,13 +917,54 @@ else:
                     (tasks_df["Acknowledged"].astype(str).str.strip() == "")
                 )
 
-                active_df = tasks_df[tasks_df["Status"].astype(str).str.strip() == "Assigned"]
-                unseen_df = tasks_df[tasks_df["is_unseen"] == True]
-                overdue_df = tasks_df[tasks_df["is_overdue"] == True]
-                review_df = tasks_df[tasks_df["Status"].astype(str).str.strip().isin(["Under Review", "Marked Complete"])]
-                done_df = tasks_df[tasks_df["Status"].astype(str).str.strip() == "Completed"]
+                # ==========================================
+                # DEPARTMENT & EMPLOYEE QUICK FILTER BAR
+                # ==========================================
+                avail_depts = sorted([d for d in tasks_df["Assigned Dept"].astype(str).str.strip().unique() if d])
+                dept_options = ["🏢 All Departments"] + [
+                    f"🏢 {d} ({len(tasks_df[(tasks_df['Assigned Dept'].astype(str).str.strip() == d) & (tasks_df['Status'] != 'Completed')])} Active)"
+                    for d in avail_depts
+                ]
+                dept_map = {"🏢 All Departments": "ALL"}
+                for d in avail_depts:
+                    label = f"🏢 {d} ({len(tasks_df[(tasks_df['Assigned Dept'].astype(str).str.strip() == d) & (tasks_df['Status'] != 'Completed')])} Active)"
+                    dept_map[label] = d
 
-                # Mobile Quick-Stats Strip (Includes Unseen Count!)
+                flt_c1, flt_c2 = st.columns([0.55, 0.45])
+                with flt_c1:
+                    selected_dept_label = st.selectbox(
+                        "Filter by Department",
+                        dept_options,
+                        key="workspace_dept_filter",
+                        label_visibility="collapsed"
+                    )
+                selected_dept_val = dept_map.get(selected_dept_label, "ALL")
+
+                if selected_dept_val != "ALL":
+                    filtered_tasks_df = tasks_df[tasks_df["Assigned Dept"].astype(str).str.strip() == selected_dept_val].copy()
+                else:
+                    filtered_tasks_df = tasks_df.copy()
+
+                with flt_c2:
+                    avail_people = sorted([p for p in filtered_tasks_df["Assigned To"].astype(str).str.strip().unique() if p])
+                    person_options = ["👷 All Staff"] + [f"👷 {p}" for p in avail_people]
+                    selected_person_label = st.selectbox(
+                        "Filter by Staff",
+                        person_options,
+                        key="workspace_person_filter",
+                        label_visibility="collapsed"
+                    )
+                if selected_person_label != "👷 All Staff":
+                    person_val = selected_person_label.replace("👷 ", "").strip()
+                    filtered_tasks_df = filtered_tasks_df[filtered_tasks_df["Assigned To"].astype(str).str.strip() == person_val].copy()
+
+                active_df = filtered_tasks_df[filtered_tasks_df["Status"].astype(str).str.strip() == "Assigned"]
+                unseen_df = filtered_tasks_df[filtered_tasks_df["is_unseen"] == True]
+                overdue_df = filtered_tasks_df[filtered_tasks_df["is_overdue"] == True]
+                review_df = filtered_tasks_df[filtered_tasks_df["Status"].astype(str).str.strip().isin(["Under Review", "Marked Complete"])]
+                done_df = filtered_tasks_df[filtered_tasks_df["Status"].astype(str).str.strip() == "Completed"]
+
+                # Mobile Quick-Stats Strip
                 st.markdown(f"""
                     <div class='stats-strip'>
                         <div class='stats-item'>📌 Act: {len(active_df)}</div>
@@ -813,9 +975,10 @@ else:
                     </div>
                 """, unsafe_allow_html=True)
 
-                sub_tab1, sub_tab_unseen, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
+                sub_tab1, sub_tab_dept, sub_tab_unseen, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
                     f"📌 Active ({len(active_df)})",
-                    f"👁️ Seen Report ({len(unseen_df)} Unseen)",
+                    f"🏢 Dept Summary ({len(avail_depts)})",
+                    f"👁️ Seen ({len(unseen_df)} Unseen)",
                     f"🚨 Overdue ({len(overdue_df)})",
                     f"⏳ Review ({len(review_df)})",
                     f"✅ Done ({len(done_df)})"
@@ -847,7 +1010,6 @@ else:
                     last_reminded = str(row.get("Last Reminded", "")).strip()
                     is_overdue = bool(row.get("is_overdue", False))
 
-                    # Non-breaking Flexbox Badges (Never split across lines on mobile!)
                     if "High" in priority:
                         prio_badge = "<span class='chip-badge chip-high'>🔴 HIGH PRIORITY</span>"
                     else:
@@ -861,13 +1023,11 @@ else:
                     elif status == "Under Review":
                         status_badge = "<span class='chip-badge chip-review'>⏳ Waiting Review</span>"
 
-                    # Seen / Acknowledge Badge
                     if ack_status:
                         seen_badge = f"<span class='chip-badge chip-seen'>👁️ {html.escape(ack_status)}</span>"
                     else:
                         seen_badge = "<span class='chip-badge chip-unseen'>🙈 Not Seen Yet</span>"
 
-                    # Timeliness check (Submitted At vs Deadline)
                     submitted_html = ""
                     if submitted_at:
                         dl_dt = parse_dt(deadline_at)
@@ -883,7 +1043,6 @@ else:
 
                     last_rem_html = f"<div>🔔 <b>Last Auto-Alert Sent:</b> {html.escape(last_reminded)}</div>" if last_reminded else ""
 
-                    # Instant Attachment Indicator
                     att_indicator_html = ""
                     if att_summary:
                         att_indicator_html = (
@@ -892,7 +1051,6 @@ else:
                             f"Sent by {html.escape(assigned_by)}: {html.escape(att_summary)}</div>"
                         )
 
-                    # Clean Multi-Line Conversation Thread
                     thread_html = ""
                     if review_notes:
                         cleaned_notes = review_notes.replace("<br>", " ").replace("<b>", "").replace("</b>", "")
@@ -908,7 +1066,6 @@ else:
                         created_line = f"<div>🕒 <b>Assigned On:</b> {html.escape(created_at)}</div>" if created_at else ""
                         deadline_color = "#DC2626" if is_overdue else "#B45309"
 
-                        # 100% Full-Width Card Content (Never squeezed or cut off on mobile)
                         card_html = (
                             f"<div class='task-card-top'>"
                             f"  <div class='task-card-title'>{title_txt}</div>"
@@ -930,7 +1087,6 @@ else:
                         )
                         st.markdown(card_html, unsafe_allow_html=True)
 
-                        # Compact Horizontal Action Strip (Stays side-by-side on mobile, never giant stacked bars!)
                         can_delete = (assigned_by == user["name"]) or (user["role"] in ["CEO", "GM"])
                         can_ack = (user["name"] == assigned_to) and (not ack_status)
 
@@ -963,7 +1119,6 @@ else:
                                         st.toast(f"Deleted {task_id}", icon="🗑️")
                                         st.rerun()
 
-                        # Display Attachments Inline When Toggled
                         if st.session_state.open_attachments.get(f"{tab_prefix}_{task_id}", False):
                             with st.spinner("Loading attachments from Drive..."):
                                 items = fetch_attachments_from_drive(task_id)
@@ -983,9 +1138,6 @@ else:
                                         else:
                                             st.markdown(f"📄 [{item['name']}]({item.get('url', '#')})")
 
-                        # ==========================================
-                        # WORKFLOW ACTION BUTTONS (ASSIGNEE VS ASSIGNER)
-                        # ==========================================
                         if status == "Assigned" and user["name"] == assigned_to:
                             st.divider()
                             user_msg = st.text_input(
@@ -1079,6 +1231,46 @@ else:
                     for _, row in sorted_active.iterrows():
                         render_task_card(row, "act")
 
+                # ==========================================
+                # DEPARTMENT-WISE ONGOING TASK SUMMARY TAB
+                # ==========================================
+                with sub_tab_dept:
+                    st.markdown("##### 🏢 Department-Wise Ongoing Task Summary")
+                    dept_rows = []
+                    for d_name in avail_depts:
+                        d_sub = tasks_df[tasks_df["Assigned Dept"].astype(str).str.strip() == d_name]
+                        d_act = len(d_sub[d_sub["Status"] == "Assigned"])
+                        d_uns = len(d_sub[d_sub["is_unseen"] == True])
+                        d_ovr = len(d_sub[d_sub["is_overdue"] == True])
+                        d_rev = len(d_sub[d_sub["Status"].isin(["Under Review", "Marked Complete"])])
+                        d_done = len(d_sub[d_sub["Status"] == "Completed"])
+                        dept_rows.append({
+                            "Department": d_name,
+                            "📌 Active": d_act,
+                            "🙈 Unseen": d_uns,
+                            "🚨 Overdue": d_ovr,
+                            "⏳ Review": d_rev,
+                            "✅ Done": d_done
+                        })
+                    if dept_rows:
+                        st.dataframe(pd.DataFrame(dept_rows), use_container_width=True, hide_index=True)
+
+                    st.caption("Tap any department below to expand its ongoing tasks:")
+                    for d_name in avail_depts:
+                        d_ongoing = tasks_df[
+                            (tasks_df["Assigned Dept"].astype(str).str.strip() == d_name) &
+                            (tasks_df["Status"].astype(str).str.strip() != "Completed")
+                        ]
+                        d_overdue_cnt = len(d_ongoing[d_ongoing["is_overdue"] == True])
+                        d_unseen_cnt = len(d_ongoing[d_ongoing["is_unseen"] == True])
+                        exp_title = f"🏢 {d_name} — {len(d_ongoing)} Ongoing (🚨 {d_overdue_cnt} Overdue | 🙈 {d_unseen_cnt} Unseen)"
+                        with st.expander(exp_title, expanded=False):
+                            if d_ongoing.empty:
+                                st.success(f"All tasks in {d_name} are completed!")
+                            else:
+                                for _, r_item in sort_by_priority(d_ongoing).iterrows():
+                                    render_task_card(r_item, f"dept_{d_name}")
+
                 with sub_tab_unseen:
                     st.markdown("##### 👁️ Telegram & Portal Acknowledgment Report")
                     seen_filter = st.radio(
@@ -1094,7 +1286,7 @@ else:
                         for _, row in target_seen_df.iterrows():
                             render_task_card(row, "uns")
                     else:
-                        ack_df = tasks_df[tasks_df["Acknowledged"].astype(str).str.strip() != ""]
+                        ack_df = filtered_tasks_df[filtered_tasks_df["Acknowledged"].astype(str).str.strip() != ""]
                         target_seen_df = sort_by_priority(ack_df)
                         if target_seen_df.empty:
                             st.caption("No acknowledged tasks yet.")
@@ -1124,12 +1316,12 @@ else:
                         render_task_card(row, "done")
 
     # ==========================================
-    # TAB 2: CREATE TASK (ANYONE CAN ASSIGN TO ANYONE)
+    # TAB 2: CREATE TASK (WITH QUICK DEADLINE BUTTONS)
     # ==========================================
     with main_tab2:
         with st.expander("➕ Assign New Task Form", expanded=True):
             title = st.text_input("📋 Task Title *", key=f"t_title_{fk}", placeholder="Enter short, clear title...")
-            desc = st.text_area("📝 Details / Instructions", key=f"t_desc_{fk}", height=90, placeholder="Write task instructions here...")
+            desc = st.text_area("📝 Details / Instructions", key=f"t_desc_{fk}", height=85, placeholder="Write task instructions here...")
 
             priority = st.selectbox(
                 "📌 Task Priority (Default: Regular)",
@@ -1154,11 +1346,56 @@ else:
                 assignee = None
                 st.warning("User_list is empty.")
 
-            col_d, col_t = st.columns(2)
-            with col_d:
-                deadline_d = st.date_input("📅 Deadline Date", value=now_ist().date(), format="DD/MM/YYYY", key=f"t_date_{fk}")
-            with col_t:
-                deadline_t = st.time_input("⏰ Time", value=now_ist().time().replace(second=0, microsecond=0), key=f"t_time_{fk}")
+            # ==========================================
+            # QUICK DEADLINE PRESET BUTTONS + CUSTOM CALENDAR
+            # Default is '1 Day' so tasks NEVER immediately go Overdue!
+            # ==========================================
+            st.markdown("<div style='margin-top:6px; font-weight:700; color:#1E3A8A;'>⏱️ Select Deadline Duration (Default: 1 Day)</div>", unsafe_allow_html=True)
+            dl_preset = st.radio(
+                "Deadline Duration",
+                [
+                    "⚡ 1 Hour",
+                    "⏱️ 3 Hours",
+                    "🕕 6 Hours",
+                    "📅 1 Day",
+                    "📅 2 Days",
+                    "🗓️ 7 Days",
+                    "📆 Custom Date"
+                ],
+                index=3,  # Defaults to '📅 1 Day' so tasks never start as Overdue
+                horizontal=True,
+                key=f"t_dl_preset_{fk}",
+                label_visibility="collapsed"
+            )
+
+            base_now = now_ist()
+            if dl_preset == "⚡ 1 Hour":
+                target_dl = base_now + timedelta(hours=1)
+            elif dl_preset == "⏱️ 3 Hours":
+                target_dl = base_now + timedelta(hours=3)
+            elif dl_preset == "🕕 6 Hours":
+                target_dl = base_now + timedelta(hours=6)
+            elif dl_preset == "📅 1 Day":
+                target_dl = base_now + timedelta(days=1)
+            elif dl_preset == "📅 2 Days":
+                target_dl = base_now + timedelta(days=2)
+            elif dl_preset == "🗓️ 7 Days":
+                target_dl = base_now + timedelta(days=7)
+            else:
+                col_d, col_t = st.columns(2)
+                with col_d:
+                    default_custom_date = (base_now + timedelta(days=1)).date()
+                    deadline_d = st.date_input("📅 Select Date", value=default_custom_date, format="DD/MM/YYYY", key=f"t_date_{fk}")
+                with col_t:
+                    deadline_t = st.time_input("⏰ Select Time", value=dt_time(18, 0), key=f"t_time_{fk}")
+                target_dl = datetime.combine(deadline_d, deadline_t)
+
+            preview_dl_str = target_dl.strftime("%d/%m/%Y, %I:%M %p")
+            st.markdown(
+                f"<div style='background:#EFF6FF; border:1px solid #93C5FD; color:#1E3A8A; padding:6px 10px; border-radius:6px; font-size:13px; font-weight:700; margin-bottom:6px;'>"
+                f"📅 Task Deadline will be set to: <b>{preview_dl_str}</b></div>",
+                unsafe_allow_html=True
+            )
 
             st.markdown(
                 f"<div style='margin-top:8px; font-weight:700; color:#1E3A8A;'>"
@@ -1175,11 +1412,28 @@ else:
             if st.button("🚀 Assign Task Now", use_container_width=True, type="primary"):
                 if title.strip() and assignee:
                     with st.spinner("Assigning task & uploading attachments..."):
+                        # Re-compute exact deadline at click moment if using relative hours/days
+                        click_now = now_ist()
+                        if dl_preset == "⚡ 1 Hour":
+                            final_dl = click_now + timedelta(hours=1)
+                        elif dl_preset == "⏱️ 3 Hours":
+                            final_dl = click_now + timedelta(hours=3)
+                        elif dl_preset == "🕕 6 Hours":
+                            final_dl = click_now + timedelta(hours=6)
+                        elif dl_preset == "📅 1 Day":
+                            final_dl = click_now + timedelta(days=1)
+                        elif dl_preset == "📅 2 Days":
+                            final_dl = click_now + timedelta(days=2)
+                        elif dl_preset == "🗓️ 7 Days":
+                            final_dl = click_now + timedelta(days=7)
+                        else:
+                            final_dl = target_dl
+
                         task_id = f"TSK-{random.randint(100000, 999999)}"
                         assigned_dept = users_df[users_df["NAME"].astype(str) == assignee]["DEPARTMENT"].values[0]
 
-                        created_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
-                        deadline_str = f"{deadline_d.strftime('%d/%m/%Y')}, {deadline_t.strftime('%I:%M:%S %p')}"
+                        created_str = click_now.strftime("%d/%m/%Y, %I:%M:%S %p")
+                        deadline_str = final_dl.strftime("%d/%m/%Y, %I:%M:%S %p")
 
                         att_parts = []
                         if uploaded_files:
@@ -1232,23 +1486,28 @@ else:
 
                         fetch_data.clear()
                         st.session_state.form_key += 1
-                    st.success(f"✅ Task '{title.strip()}' successfully assigned to {assignee}!")
-                    st.toast(f"✅ Assigned to {assignee}!", icon="🚀")
+                        st.session_state.flash_msg = f"✅ Task '{title.strip()}' assigned to {assignee} (Deadline: {deadline_str})!"
+                        # Instant st.rerun() so Sujen immediately sees the new task in '📋 Task Pro' without logging out!
+                        st.rerun()
                 else:
                     st.error("⚠️ Task Title and Assignee are required.")
 
     # ==========================================
-    # TAB 3: SET REMINDER (DAILY, WEEKLY, MONTHLY)
+    # TAB 3: SET REMINDER (DAILY, WEEKLY, MONTHLY, OR SPECIFIC FUTURE DATE)
     # ==========================================
     with main_tab3:
-        st.markdown("### ⏰ Set Routine Reminder")
-        st.caption("Recurring reminders automatically trigger Telegram alerts on schedule via Google Apps Script.")
-        rem_tab1, rem_tab2, rem_tab3 = st.tabs(["📅 Daily", "📆 Weekly", "🗓️ Monthly"])
+        st.markdown("### ⏰ Set Routine or Scheduled Reminder")
+        rem_tab1, rem_tab2, rem_tab3, rem_tab4 = st.tabs([
+            "📅 Daily",
+            "📆 Weekly Meeting",
+            "🗓️ Monthly Date",
+            "📌 Next Week / Specific Date"
+        ])
         users_df = fetch_data("User_list")
         assignees_list = users_df["NAME"].astype(str).tolist() if not users_df.empty else []
 
         with rem_tab1:
-            d_title = st.text_input("Daily Routine Title", key="d_title")
+            d_title = st.text_input("Daily Routine Title", key="d_title", placeholder="e.g., Check Daily Production Log")
             d_time = st.time_input("Alert Time (IST)", value=dt_time(10, 0), key="d_time")
             d_assignee = st.selectbox("Assign To", assignees_list, key="d_assignee")
 
@@ -1297,13 +1556,13 @@ else:
                                 assigned_dept
                             )
                         fetch_data.clear()
-                    st.success(f"✅ Daily reminder '{d_title}' set for {d_assignee} ({deadline_str})!")
-                    st.toast("Daily reminder saved!", icon="⏰")
+                        st.session_state.flash_msg = f"✅ Daily reminder '{d_title.strip()}' set for {d_assignee} ({deadline_str})!"
+                        st.rerun()
                 else:
                     st.error("Please enter a title.")
 
         with rem_tab2:
-            w_title = st.text_input("Weekly Routine Title", key="w_title")
+            w_title = st.text_input("Weekly Meeting / Routine Title", key="w_title", placeholder="e.g., Weekly Review Meeting")
             w_c1, w_c2 = st.columns(2)
             with w_c1:
                 w_day = st.selectbox("Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], key="w_day")
@@ -1356,16 +1615,16 @@ else:
                                 assigned_dept
                             )
                         fetch_data.clear()
-                    st.success(f"✅ Weekly reminder '{w_title}' set for {w_assignee} ({deadline_str})!")
-                    st.toast("Weekly reminder saved!", icon="⏰")
+                        st.session_state.flash_msg = f"✅ Weekly reminder '{w_title.strip()}' set for {w_assignee} ({deadline_str})!"
+                        st.rerun()
                 else:
                     st.error("Please enter a title.")
 
         with rem_tab3:
-            m_title = st.text_input("Monthly Routine Title", key="m_title")
+            m_title = st.text_input("Monthly Routine Title", key="m_title", placeholder="e.g., GST & Monthly Stock Audit")
             m_c1, m_c2 = st.columns(2)
             with m_c1:
-                m_date = st.slider("Day of Month", 1, 31, 1, key="m_date")
+                m_date = st.slider("Day of Month (1 - 31)", 1, 31, 1, key="m_date")
             with m_c2:
                 m_time = st.time_input("Alert Time (IST)", value=dt_time(10, 0), key="m_time")
             m_assignee = st.selectbox("Assign To", assignees_list, key="m_assignee")
@@ -1415,7 +1674,65 @@ else:
                                 assigned_dept
                             )
                         fetch_data.clear()
-                    st.success(f"✅ Monthly reminder '{m_title}' set for {m_assignee} ({deadline_str})!")
-                    st.toast("Monthly reminder saved!", icon="⏰")
+                        st.session_state.flash_msg = f"✅ Monthly reminder '{m_title.strip()}' set for {d_assignee if False else m_assignee} ({deadline_str})!"
+                        st.rerun()
+                else:
+                    st.error("Please enter a title.")
+
+        with rem_tab4:
+            o_title = st.text_input("Next Week / One-Time Reminder Title", key="o_title", placeholder="e.g., Client Visit / Next Week Follow-up")
+            o_c1, o_c2 = st.columns(2)
+            with o_c1:
+                o_date = st.date_input("Reminder Date", value=(now_ist() + timedelta(days=7)).date(), format="DD/MM/YYYY", key="o_date")
+            with o_c2:
+                o_time = st.time_input("Alert Time (IST)", value=dt_time(10, 0), key="o_time")
+            o_assignee = st.selectbox("Assign To", assignees_list, key="o_assignee")
+
+            if st.button("⏰ Save Scheduled Date Reminder", type="primary", use_container_width=True):
+                if o_title.strip() and o_assignee:
+                    with st.spinner("Saving scheduled reminder..."):
+                        task_id = f"REM-{random.randint(100000, 999999)}"
+                        assigned_dept = users_df[users_df["NAME"].astype(str) == o_assignee]["DEPARTMENT"].values[0]
+                        created_str = now_ist().strftime("%d/%m/%Y, %I:%M:%S %p")
+                        deadline_str = f"Once on {o_date.strftime('%d/%m/%Y')}, {o_time.strftime('%I:%M %p')}"
+                        priority = "🟢 Regular"
+
+                        task_dict = {
+                            "Task ID": task_id,
+                            "Title": f"Scheduled: {o_title.strip()}",
+                            "Description": f"Scheduled Reminder for {deadline_str}",
+                            "Assigned By": user["name"],
+                            "Assigned Dept": assigned_dept,
+                            "Assigned To": str(o_assignee).strip().upper(),
+                            "Created": created_str,
+                            "Deadline": deadline_str,
+                            "Status": "Assigned",
+                            "Attachments": "",
+                            "Review Notes": "",
+                            "Priority": priority,
+                            "ItemType": "Reminder",
+                            "Submitted At": "",
+                            "Acknowledged": "",
+                            "Last Reminded": ""
+                        }
+                        append_task(task_dict)
+
+                        assignee_row = users_df[users_df["NAME"].astype(str) == o_assignee]
+                        telegram_id = assignee_row["TELEGRAM_ID"].values[0] if "TELEGRAM_ID" in assignee_row.columns else None
+                        if pd.notna(telegram_id) and str(telegram_id).strip() != "":
+                            send_telegram_alert(
+                                telegram_id,
+                                task_id,
+                                f"Scheduled: {o_title.strip()}",
+                                user["name"],
+                                deadline_str,
+                                f"Scheduled Reminder set for {deadline_str}",
+                                priority,
+                                o_assignee,
+                                assigned_dept
+                            )
+                        fetch_data.clear()
+                        st.session_state.flash_msg = f"✅ Scheduled reminder '{o_title.strip()}' set for {o_assignee} ({deadline_str})!"
+                        st.rerun()
                 else:
                     st.error("Please enter a title.")
